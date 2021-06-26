@@ -21,26 +21,39 @@ import bpy
 from bpy.types import Action, Context
 
 
-def action_to_python_data(act: Action, text_block_name):
+def action_to_python_data_text(act: Action, text_block_name):
     channels = {}
     act_range = action_frame_range(act)
     for curve in act.fcurves:
         baked_keys = []
         for frame in range(int(act_range[0]), int(act_range[1]) + 1):
             baked_keys += [(frame, curve.evaluate(frame))]
-        channels[curve.data_path] = baked_keys
+        channels[(curve.data_path, curve.array_index)] = baked_keys
 
     text = "{\n"
     for k in channels:
-        text += "  \"{}\": {},\n".format(k, channels[k])
+        text += "  {}: [".format(k)
+        for point in channels[k]:
+            text += "({}, {:.6f}), ".format(point[0], point[1])
+        text += "],\n"
     text += "}\n"
     
-    bpy.data.texts.new(text_block_name).from_string(text)
+    return bpy.data.texts.new(text_block_name).from_string(text)
 
 
-def python_data_to_action(data):
-    # TODO
-    pass
+def python_data_to_loop_action(data, action_name) -> Action:
+    act = bpy.data.actions.new(action_name)
+    for k in data:
+        curve = act.fcurves.new(k[0], index=k[1])
+        curve.keyframe_points.add(len(data[k]))
+        for i in range(len(data[k])):
+            curve.keyframe_points[i].co = data[k][i]
+            curve.keyframe_points[i].handle_left_type = 'AUTO'
+            curve.keyframe_points[i].handle_right_type = 'AUTO'
+        curve.keyframe_points[-1] = curve.keyframe_points[0] # Ensure looping.
+        curve.modifiers.new('CYCLES')
+        curve.update()
+    return act
 
 
 def action_frame_range(act: Action):

@@ -29,7 +29,7 @@ bl_info = {
 
 import bpy
 from bpy.types import Camera, Context
-from .action_utils import action_to_python_data
+from .action_utils import action_to_python_data_text, python_data_to_loop_action
 
 
 # This is the main function that is executed by the operator.
@@ -102,12 +102,12 @@ class ActionToPythonData(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return True#context.active_object is not None \
-               #and context.active_object.animation_data is not None \
-               #and context.active_object.animation_data.action is not None
+        return context.active_object is not None \
+               and context.active_object.animation_data is not None \
+               and context.active_object.animation_data.action is not None
 
     def execute(self, context):
-        action_to_python_data(context.active_object.animation_data.action, "action_output.txt")
+        action_to_python_data_text(context.active_object.animation_data.action, "action_output.txt")
         return {'FINISHED'}
 
 
