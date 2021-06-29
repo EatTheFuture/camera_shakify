@@ -50,7 +50,7 @@ def python_data_to_loop_action(data, action_name) -> Action:
             curve.keyframe_points[i].co = data[k][i]
             curve.keyframe_points[i].handle_left_type = 'AUTO'
             curve.keyframe_points[i].handle_right_type = 'AUTO'
-        curve.keyframe_points[-1] = curve.keyframe_points[0] # Ensure looping.
+        curve.keyframe_points[-1].co = curve.keyframe_points[0].co # Ensure looping.
         curve.modifiers.new('CYCLES')
         curve.update()
     return act

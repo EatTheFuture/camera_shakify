@@ -30,6 +30,7 @@ bl_info = {
 import bpy
 from bpy.types import Camera, Context
 from .action_utils import action_to_python_data_text, python_data_to_loop_action
+from .wobble_data import WOBBLE_LIST
 
 
 # This is the main function that is executed by the operator.
@@ -54,44 +55,106 @@ class CameraWobblePanel(bpy.types.Panel):
     bl_region_type = 'WINDOW'
     bl_context = "data"
 
+    @classmethod
+    def poll(cls, context):
+        return context.active_object.type == 'CAMERA'
+
     def draw(self, context):
         layout = self.layout
 
         scene = context.scene
 
         row = layout.row()
-        row.operator("object.add_camera_wobble")
-        row.operator("object.remove_camera_wobble")
+        row.prop(context.object, "camera_shake")
 
 
-class AddCameraWobble(bpy.types.Operator):
-    """Add the selected camera-wobble to the selected camera"""
-    bl_idname = "object.add_camera_wobble"
-    bl_label = "Add Wobble"
-    bl_options = {'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'CAMERA'
-
-    def execute(self, context):
-        add_wobble(context.active_object, None)
-        return {'FINISHED'}
+#========================================================
 
 
-class RemoveCameraWobble(bpy.types.Operator):
-    """Remove the selected camera-wobble from the selected camera"""
-    bl_idname = "object.remove_camera_wobble"
-    bl_label = "Remove Wobble"
-    bl_options = {'UNDO'}
+def on_set_camera_wobble(camera_object, context):
+    BASE_NAME = "CameraWobble.v1"
+    wobble_name = str(camera_object.camera_shake)
+    loc_constraint_name = BASE_NAME + "_location"
+    rot_constraint_name = BASE_NAME + "_rotation"
 
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'CAMERA'
+    # Handle the "None" case.
+    if wobble_name == 'NONE':
+        if loc_constraint_name in camera_object.constraints:
+            camera_object.constraints.remove(camera_object.constraints[loc_constraint_name])
+        if rot_constraint_name in camera_object.constraints:
+            camera_object.constraints.remove(camera_object.constraints[rot_constraint_name])
+        return
+    
+    # Ensure that our camera wobble collection exists and fetch it.
+    collection = None
+    if BASE_NAME in context.scene.collection.children:
+        collection = context.scene.collection.children[BASE_NAME]
+    else:
+        if BASE_NAME not in bpy.data.collections:
+            collection = bpy.data.collections.new(BASE_NAME)
+            collection.hide_viewport = True
+            collection.hide_render = True
+            collection.hide_select = True
+        else:
+            collection = bpy.data.collections[BASE_NAME]
+        context.scene.collection.children.link(bpy.data.collections[BASE_NAME])
+        for layer in context.scene.view_layers:
+            if collection.name in layer.layer_collection.children:
+                layer.layer_collection.children[collection.name].exclude = True
 
-    def execute(self, context):
-        remove_wobble(context.active_object, None)
-        return {'FINISHED'}
+    # Ensure the needed action exists, and fetch it.
+    action = None
+    action_name = BASE_NAME + "_" + wobble_name.lower()
+    if action_name in bpy.data.actions:
+        action = bpy.data.actions[action_name]
+    else:
+        action = python_data_to_loop_action(WOBBLE_LIST[wobble_name], action_name)
+        action.use_fake_user = False  # Just to make sure stale ones don't stick around on accident.
+
+    # Ensure the needed empty object exists, fetch it.
+    shake_object = None
+    shake_object_name = BASE_NAME + "_" + wobble_name.lower()
+    if shake_object_name in bpy.data.objects:
+        shake_object = bpy.data.objects[shake_object_name]
+    else:
+        shake_object = bpy.data.objects.new(shake_object_name, None)
+    
+    # Make sure the empty object has the right action on it.
+    if shake_object.animation_data == None:
+        shake_object.animation_data_create()
+    shake_object.animation_data.action = action
+
+    # Make sure the empty object is linked into our collection.
+    if shake_object.name not in collection.objects:
+        collection.objects.link(shake_object)
+
+    # Clear old constraints from camera if needed.
+    # Add/remove constraints to/from the camera.
+    if loc_constraint_name in camera_object.constraints:
+        camera_object.constraints.remove(camera_object.constraints[loc_constraint_name])
+    if rot_constraint_name in camera_object.constraints:
+        camera_object.constraints.remove(camera_object.constraints[rot_constraint_name])
+
+    # Create the new constraints.
+    loc_constraint = camera_object.constraints.new(type='COPY_LOCATION')    
+    rot_constraint = camera_object.constraints.new(type='COPY_ROTATION')    
+    loc_constraint.name = loc_constraint_name
+    rot_constraint.name = rot_constraint_name
+
+    # Set up location constraint.
+    loc_constraint.target = shake_object
+    loc_constraint.target_space = 'WORLD'
+    loc_constraint.owner_space = 'LOCAL'
+    loc_constraint.use_offset = True
+
+    # Set up rotation constraint.
+    rot_constraint.target = shake_object
+    rot_constraint.target_space = 'WORLD'
+    rot_constraint.owner_space = 'LOCAL'
+    rot_constraint.mix_mode = 'AFTER'
+    
+
+        
 
 
 class ActionToPythonData(bpy.types.Operator):
@@ -116,11 +179,18 @@ class ActionToPythonData(bpy.types.Operator):
 
 def register():
     bpy.utils.register_class(CameraWobblePanel)
-    bpy.utils.register_class(AddCameraWobble)
-    bpy.utils.register_class(RemoveCameraWobble)
     bpy.utils.register_class(ActionToPythonData)
     bpy.types.VIEW3D_MT_object.append(
         lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
+    )
+
+    # Add list of Camera shakes to object properties.
+    bpy.types.Object.camera_shake = bpy.props.EnumProperty(
+        name = "Camera Shake",
+        items = [('NONE', 'None', "")] \
+            + [(id, id.replace("_", " ").title(), "") for id in WOBBLE_LIST.keys()],
+        default = 'NONE',
+        update = on_set_camera_wobble,
     )
 
     # bpy.types.Scene.clean_blend_use_max_vert_check = bpy.props.BoolProperty(
@@ -132,8 +202,6 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(CameraWobblePanel)
-    bpy.utils.unregister_class(AddCameraWobble)
-    bpy.utils.unregister_class(RemoveCameraWobble)
     bpy.utils.unregister_class(ActionToPythonData)
 
 
