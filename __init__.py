@@ -32,16 +32,9 @@ from bpy.types import Camera, Context
 from .action_utils import action_to_python_data_text, python_data_to_loop_action
 from .wobble_data import WOBBLE_LIST
 
-
-# This is the main function that is executed by the operator.
-def add_wobble(camera: Camera, wobble_id):
-    # TODO
-    print("Add Wobble: ", camera, wobble_id)
-
-
-    # TODO
-def remove_wobble(camera: Camera, wobble_id):
-    print("Remove Wobble: ", camera, wobble_id)
+# Constants used in various parts of the code.
+INFLUENCE_PROP = "shake_influence"  # The name of the shake influence property.
+INFLUENCE_PROP_MAX = 4.0  # The maximum value the shake influence property can take.
 
 
 #========================================================
@@ -62,15 +55,22 @@ class CameraWobblePanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
 
-        scene = context.scene
+        camera = context.active_object
 
         row = layout.row()
-        row.prop(context.object, "camera_shake")
+        row.separator_spacer()
+        row.prop(camera, "camera_shake")
+
+        if INFLUENCE_PROP in camera:
+            row = layout.row()
+            row.separator_spacer()
+            row.prop(camera, '["{}"]'.format(INFLUENCE_PROP), text="Influence".format(camera.name), slider=True)
 
 
 #========================================================
 
-
+# The main function that actually does the real work of this addon.
+# It's called whenever the shake type is changed on a camera.
 def on_set_camera_wobble(camera_object, context):
     BASE_NAME = "CameraWobble.v1"
     wobble_name = str(camera_object.camera_shake)
@@ -84,7 +84,7 @@ def on_set_camera_wobble(camera_object, context):
         if rot_constraint_name in camera_object.constraints:
             camera_object.constraints.remove(camera_object.constraints[rot_constraint_name])
         return
-    
+
     # Ensure that our camera wobble collection exists and fetch it.
     collection = None
     if BASE_NAME in context.scene.collection.children:
@@ -108,7 +108,7 @@ def on_set_camera_wobble(camera_object, context):
     if action_name in bpy.data.actions:
         action = bpy.data.actions[action_name]
     else:
-        action = python_data_to_loop_action(WOBBLE_LIST[wobble_name], action_name)
+        action = python_data_to_loop_action(WOBBLE_LIST[wobble_name], action_name, INFLUENCE_PROP_MAX)
         action.use_fake_user = False  # Just to make sure stale ones don't stick around on accident.
 
     # Ensure the needed empty object exists, fetch it.
@@ -118,7 +118,7 @@ def on_set_camera_wobble(camera_object, context):
         shake_object = bpy.data.objects[shake_object_name]
     else:
         shake_object = bpy.data.objects.new(shake_object_name, None)
-    
+
     # Make sure the empty object has the right action on it.
     if shake_object.animation_data == None:
         shake_object.animation_data_create()
@@ -127,6 +127,20 @@ def on_set_camera_wobble(camera_object, context):
     # Make sure the empty object is linked into our collection.
     if shake_object.name not in collection.objects:
         collection.objects.link(shake_object)
+
+    # Ensure the camera has the needed custom properties.
+    if INFLUENCE_PROP not in camera_object:
+        if "_RNA_UI" not in camera_object:
+            camera_object["_RNA_UI"] = {}
+        camera_object[INFLUENCE_PROP] = 1.0
+        camera_object["_RNA_UI"][INFLUENCE_PROP] = {
+            "default": 1.0,
+            "min": 0.0,
+            "max": INFLUENCE_PROP_MAX,
+            "soft_min": 0.0,
+            "soft_max": 1.0,
+            "description": "How much the camera shake should affect the camera",
+        }
 
     # Clear old constraints from camera if needed.
     # Add/remove constraints to/from the camera.
@@ -146,15 +160,36 @@ def on_set_camera_wobble(camera_object, context):
     loc_constraint.target_space = 'WORLD'
     loc_constraint.owner_space = 'LOCAL'
     loc_constraint.use_offset = True
+    loc_constraint.influence = 1.0 / INFLUENCE_PROP_MAX
 
     # Set up rotation constraint.
     rot_constraint.target = shake_object
     rot_constraint.target_space = 'WORLD'
     rot_constraint.owner_space = 'LOCAL'
     rot_constraint.mix_mode = 'AFTER'
-    
+    rot_constraint.influence = 1.0 / INFLUENCE_PROP_MAX
 
-        
+    # Set up the location constraint driver.
+    driver = loc_constraint.driver_add("influence").driver
+    driver.type = 'SCRIPTED'
+    driver.expression = "influence * {}".format(1.0 / INFLUENCE_PROP_MAX)
+    var = driver.variables.new()
+    var.name = "influence"
+    var.type = 'SINGLE_PROP'
+    var.targets[0].id_type = 'OBJECT'
+    var.targets[0].id = camera_object
+    var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
+
+    # Set up the rotation constraint driver.
+    driver = rot_constraint.driver_add("influence").driver
+    driver.type = 'SCRIPTED'
+    driver.expression = "influence * {}".format(1.0 / INFLUENCE_PROP_MAX)
+    var = driver.variables.new()
+    var.name = "influence"
+    var.type = 'SINGLE_PROP'
+    var.targets[0].id_type = 'OBJECT'
+    var.targets[0].id = camera_object
+    var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
 
 
 class ActionToPythonData(bpy.types.Operator):

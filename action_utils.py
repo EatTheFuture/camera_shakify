@@ -41,16 +41,16 @@ def action_to_python_data_text(act: Action, text_block_name):
     return bpy.data.texts.new(text_block_name).from_string(text)
 
 
-def python_data_to_loop_action(data, action_name) -> Action:
+def python_data_to_loop_action(data, action_name, factor=1.0) -> Action:
     act = bpy.data.actions.new(action_name)
     for k in data:
         curve = act.fcurves.new(k[0], index=k[1])
         curve.keyframe_points.add(len(data[k]))
         for i in range(len(data[k])):
-            curve.keyframe_points[i].co = data[k][i]
+            curve.keyframe_points[i].co = (data[k][i][0], data[k][i][1] * factor)
             curve.keyframe_points[i].handle_left_type = 'AUTO'
             curve.keyframe_points[i].handle_right_type = 'AUTO'
-        curve.keyframe_points[-1].co = curve.keyframe_points[0].co # Ensure looping.
+        curve.keyframe_points[-1].co[1] = curve.keyframe_points[0].co[1] # Ensure looping.
         curve.modifiers.new('CYCLES')
         curve.update()
     return act
