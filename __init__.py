@@ -17,14 +17,14 @@
 #======================= END GPL LICENSE BLOCK ========================
 
 bl_info = {
-    "name": "CameraWobble",
+    "name": "Camera Wobble",
     "version": (0, 1, 0),
-    "author": "Nathan Vegdahl",
+    "author": "Nathan Vegdahl, Ian Hubert",
     "blender": (2, 93, 0),
-    "description": "Adds controllable camera shake/wobble to a camera",
-    "location": "",
-    "doc_url": "",
-    "category": "Camera",
+    "description": "Add captured camera shake/wobble to your cameras",
+    "location": "Camera properties",
+    # "doc_url": "",
+    "category": "Animation",
 }
 
 import bpy
@@ -32,9 +32,16 @@ from bpy.types import Camera, Context
 from .action_utils import action_to_python_data_text, python_data_to_loop_action
 from .wobble_data import WOBBLE_LIST
 
-# Constants used in various parts of the code.
-INFLUENCE_PROP = "shake_influence"  # The name of the shake influence property.
-INFLUENCE_PROP_MAX = 4.0  # The maximum value the shake influence property can take.
+BASE_NAME = "CameraWobble.v1"
+
+# Names and maximum values of our per-camera scaling/influence properties.
+INFLUENCE_PROP = "shake_influence"
+INFLUENCE_PROP_MAX = 4.0
+LOCATION_SCALE_PROP = "shake_location_scale"
+LOCATION_SCALE_PROP_MAX = 100.0
+
+# The maximum supported world unit scale.
+UNIT_SCALE_MAX = 1000.0
 
 
 #========================================================
@@ -65,24 +72,74 @@ class CameraWobblePanel(bpy.types.Panel):
             row = layout.row()
             row.separator_spacer()
             row.prop(camera, '["{}"]'.format(INFLUENCE_PROP), text="Influence".format(camera.name), slider=True)
+        if LOCATION_SCALE_PROP in camera:
+            row = layout.row()
+            row.separator_spacer()
+            row.prop(camera, '["{}"]'.format(LOCATION_SCALE_PROP), text="Location Scale".format(camera.name), slider=True)
 
 
 #========================================================
 
+
+# General cleanup routine.
+def cleanup(context):
+    # Get the collection if it exists.  Otherwise, nothing to do.
+    collection = None
+    if BASE_NAME in context.scene.collection.children:
+        collection = context.scene.collection.children[BASE_NAME]
+    else:
+        return
+
+    # Check all the cameras in the scene to find out what
+    # shakes are currently being used.
+    shakes_used = {}
+    for obj in context.scene.objects:
+        if obj.type == 'CAMERA':
+            shakes_used[obj.camera_shake] = True
+
+    # Delete unused objects and actions associated with
+    # the unused shakes.
+    for obj in collection.objects:
+        shake_name = obj.name[len(BASE_NAME) + 1:].upper()
+        if shake_name not in shakes_used:
+            action_name = obj.animation_data.action.name
+            obj.animation_data_clear()
+            collection.objects.unlink(obj)
+            if obj.users == 0:
+                bpy.data.objects.remove(obj)
+            if action_name in bpy.data.actions:
+                action = bpy.data.actions[action_name]
+                if action.users == 0:
+                    bpy.data.actions.remove(action)
+
+    # If there's nothing left in the collection, delete it too.
+    if len(collection.objects) == 0:
+        context.scene.collection.children.unlink(collection)
+        if collection.users == 0:
+            bpy.data.collections.remove(collection)
+
+
 # The main function that actually does the real work of this addon.
 # It's called whenever the shake type is changed on a camera.
 def on_set_camera_wobble(camera_object, context):
-    BASE_NAME = "CameraWobble.v1"
     wobble_name = str(camera_object.camera_shake)
     loc_constraint_name = BASE_NAME + "_location"
     rot_constraint_name = BASE_NAME + "_rotation"
 
     # Handle the "None" case.
     if wobble_name == 'NONE':
+        if camera_object.animation_data != None:
+            drivers_to_remove = []
+            for driver in camera_object.animation_data.drivers:
+                if driver.data_path.startswith("constraints[\"{}".format(BASE_NAME)):
+                    drivers_to_remove += [driver]
+            for driver in drivers_to_remove:
+                camera_object.animation_data.drivers.remove(driver)
         if loc_constraint_name in camera_object.constraints:
             camera_object.constraints.remove(camera_object.constraints[loc_constraint_name])
         if rot_constraint_name in camera_object.constraints:
             camera_object.constraints.remove(camera_object.constraints[rot_constraint_name])
+        cleanup(context)
         return
 
     # Ensure that our camera wobble collection exists and fetch it.
@@ -108,8 +165,12 @@ def on_set_camera_wobble(camera_object, context):
     if action_name in bpy.data.actions:
         action = bpy.data.actions[action_name]
     else:
-        action = python_data_to_loop_action(WOBBLE_LIST[wobble_name], action_name, INFLUENCE_PROP_MAX)
-        action.use_fake_user = False  # Just to make sure stale ones don't stick around on accident.
+        action = python_data_to_loop_action(
+            WOBBLE_LIST[wobble_name],
+            action_name,
+            INFLUENCE_PROP_MAX,
+            INFLUENCE_PROP_MAX * LOCATION_SCALE_PROP_MAX * UNIT_SCALE_MAX
+        )
 
     # Ensure the needed empty object exists, fetch it.
     shake_object = None
@@ -129,9 +190,9 @@ def on_set_camera_wobble(camera_object, context):
         collection.objects.link(shake_object)
 
     # Ensure the camera has the needed custom properties.
+    if "_RNA_UI" not in camera_object:
+        camera_object["_RNA_UI"] = {}
     if INFLUENCE_PROP not in camera_object:
-        if "_RNA_UI" not in camera_object:
-            camera_object["_RNA_UI"] = {}
         camera_object[INFLUENCE_PROP] = 1.0
         camera_object["_RNA_UI"][INFLUENCE_PROP] = {
             "default": 1.0,
@@ -140,6 +201,16 @@ def on_set_camera_wobble(camera_object, context):
             "soft_min": 0.0,
             "soft_max": 1.0,
             "description": "How much the camera shake should affect the camera",
+        }
+    if LOCATION_SCALE_PROP not in camera_object:
+        camera_object[LOCATION_SCALE_PROP] = 1.0
+        camera_object["_RNA_UI"][LOCATION_SCALE_PROP] = {
+            "default": 1.0,
+            "min": 0.0,
+            "max": LOCATION_SCALE_PROP_MAX,
+            "soft_min": 0.0,
+            "soft_max": 2.0,
+            "description": "Additional scale factor for the location component of the camera shake",
         }
 
     # Clear old constraints from camera if needed.
@@ -172,41 +243,59 @@ def on_set_camera_wobble(camera_object, context):
     # Set up the location constraint driver.
     driver = loc_constraint.driver_add("influence").driver
     driver.type = 'SCRIPTED'
-    driver.expression = "influence * {}".format(1.0 / INFLUENCE_PROP_MAX)
-    var = driver.variables.new()
-    var.name = "influence"
-    var.type = 'SINGLE_PROP'
-    var.targets[0].id_type = 'OBJECT'
-    var.targets[0].id = camera_object
-    var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
+    driver.expression = "{} * influence * location_scale / unit_scale".format(1.0 / (UNIT_SCALE_MAX * INFLUENCE_PROP_MAX * LOCATION_SCALE_PROP_MAX))
+    if "influence" not in driver.variables:
+        var = driver.variables.new()
+        var.name = "influence"
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id_type = 'OBJECT'
+        var.targets[0].id = camera_object
+        var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
+    if "location_scale" not in driver.variables:
+        var = driver.variables.new()
+        var.name = "location_scale"
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id_type = 'OBJECT'
+        var.targets[0].id = camera_object
+        var.targets[0].data_path ='["{}"]'.format(LOCATION_SCALE_PROP)
+    if "unit_scale" not in driver.variables:
+        var = driver.variables.new()
+        var.name = "unit_scale"
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id_type = 'SCENE'
+        var.targets[0].id = context.scene
+        var.targets[0].data_path ='unit_settings.scale_length'
 
     # Set up the rotation constraint driver.
     driver = rot_constraint.driver_add("influence").driver
     driver.type = 'SCRIPTED'
     driver.expression = "influence * {}".format(1.0 / INFLUENCE_PROP_MAX)
-    var = driver.variables.new()
-    var.name = "influence"
-    var.type = 'SINGLE_PROP'
-    var.targets[0].id_type = 'OBJECT'
-    var.targets[0].id = camera_object
-    var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
+    if "influence" not in driver.variables:
+        var = driver.variables.new()
+        var.name = "influence"
+        var.type = 'SINGLE_PROP'
+        var.targets[0].id_type = 'OBJECT'
+        var.targets[0].id = camera_object
+        var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
+
+    cleanup(context)
 
 
-class ActionToPythonData(bpy.types.Operator):
-    """Writes the action on the currentl selected object to a text block as Python data"""
-    bl_idname = "object.action_to_python_data"
-    bl_label = "Action to Python Data"
-    bl_options = {'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None \
-               and context.active_object.animation_data is not None \
-               and context.active_object.animation_data.action is not None
-
-    def execute(self, context):
-        action_to_python_data_text(context.active_object.animation_data.action, "action_output.txt")
-        return {'FINISHED'}
+#class ActionToPythonData(bpy.types.Operator):
+#    """Writes the action on the currently selected object to a text block as Python data"""
+#    bl_idname = "object.action_to_python_data"
+#    bl_label = "Action to Python Data"
+#    bl_options = {'UNDO'}
+#
+#    @classmethod
+#    def poll(cls, context):
+#        return context.active_object is not None \
+#               and context.active_object.animation_data is not None \
+#               and context.active_object.animation_data.action is not None
+#
+#    def execute(self, context):
+#        action_to_python_data_text(context.active_object.animation_data.action, "action_output.txt")
+#        return {'FINISHED'}
 
 
 #========================================================
@@ -214,7 +303,7 @@ class ActionToPythonData(bpy.types.Operator):
 
 def register():
     bpy.utils.register_class(CameraWobblePanel)
-    bpy.utils.register_class(ActionToPythonData)
+    #bpy.utils.register_class(ActionToPythonData)
     bpy.types.VIEW3D_MT_object.append(
         lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
     )
@@ -237,7 +326,7 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(CameraWobblePanel)
-    bpy.utils.unregister_class(ActionToPythonData)
+    #bpy.utils.unregister_class(ActionToPythonData)
 
 
 if __name__ == "__main__":
