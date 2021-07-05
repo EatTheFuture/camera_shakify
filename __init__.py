@@ -66,16 +66,43 @@ class CameraWobblePanel(bpy.types.Panel):
 
         row = layout.row()
         row.separator_spacer()
-        row.prop(camera, "camera_shake")
+        row.template_list(
+            listtype_name="OBJECT_UL_camera_shake_items",
+            list_id="Floog",
+            dataptr=camera,
+            propname="camera_shakes",
+            active_dataptr=camera,
+            active_propname="camera_shakes_active_index",
+        )
 
-        if INFLUENCE_PROP in camera:
-            row = layout.row()
-            row.separator_spacer()
-            row.prop(camera, '["{}"]'.format(INFLUENCE_PROP), text="Influence".format(camera.name), slider=True)
-        if LOCATION_SCALE_PROP in camera:
-            row = layout.row()
-            row.separator_spacer()
-            row.prop(camera, '["{}"]'.format(LOCATION_SCALE_PROP), text="Location Scale".format(camera.name), slider=True)
+        row = layout.row()
+        row.separator_spacer()
+        row.prop(context.window_manager, "camera_shake_selection", text="Shake")
+
+        row = layout.row()
+        row.separator_spacer()
+        row.operator("object.add_camera_shake", icon='PLUS')
+        row.operator("object.remove_camera_shake", icon='X')
+
+
+class OBJECT_UL_camera_shake_items(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
+        ob = data
+        # draw_item must handle the three layout types... Usually 'DEFAULT' and 'COMPACT' can share the same code.
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            col = layout.column()
+            col.label(
+                text=str(item.shake_type).replace("_", " ").title(),
+                icon='FCURVE_SNAPSHOT',
+            )
+
+            col = layout.column()
+            col.alignment = 'RIGHT'
+            col.prop(item, "influence", text="", expand=False, slider=True, emboss=False)
+        # 'GRID' layout type should be as compact as possible (typically a single icon!).
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon_value=icon)
 
 
 #========================================================
@@ -298,34 +325,94 @@ def on_set_camera_wobble(camera_object, context):
 #        return {'FINISHED'}
 
 
+class AddCameraShake(bpy.types.Operator):
+    """Adds the selected camera shake to the list"""
+    bl_idname = "object.add_camera_shake"
+    bl_label = "Add Shake"
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'CAMERA'
+
+    def execute(self, context):
+        camera = context.active_object
+        shake_type = str(context.window_manager.camera_shake_selection)
+
+        shake = camera.camera_shakes.add()
+        shake.shake_type = shake_type
+
+        return {'FINISHED'}
+
+
+class RemoveCameraShake(bpy.types.Operator):
+    """Removes the selected camera shake item from the list"""
+    bl_idname = "object.remove_camera_shake"
+    bl_label = "Remove Shake"
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'CAMERA'
+
+    def execute(self, context):
+        # TODO
+        return {'FINISHED'}
+
+
+# An actual instance of Camera shake added to a camera.
+class CameraShakeInstance(bpy.types.PropertyGroup):
+    shake_type: bpy.props.EnumProperty(
+        name = "Shake Type",
+        items = [(id, id.replace("_", " ").title(), "") for id in WOBBLE_LIST.keys()],
+    )
+    influence: bpy.props.FloatProperty(
+        name="Influence",
+        description="How much the camera shake should affect the camera",
+        default=1.0,
+        min=0.0, max=INFLUENCE_PROP_MAX,
+        soft_min=0.0, soft_max=1.0,
+    )
+    scale:  bpy.props.FloatProperty(
+        name="Scale",
+        description="The scale of the shake's location component",
+        default=1.0,
+        min=0.0, max=LOCATION_SCALE_PROP_MAX,
+        soft_min=0.0, soft_max=2.0,
+    )
+
+
 #========================================================
 
 
 def register():
     bpy.utils.register_class(CameraWobblePanel)
+    bpy.utils.register_class(OBJECT_UL_camera_shake_items)
+    bpy.utils.register_class(CameraShakeInstance)
+    bpy.utils.register_class(AddCameraShake)
+    bpy.utils.register_class(RemoveCameraShake)
     #bpy.utils.register_class(ActionToPythonData)
-    bpy.types.VIEW3D_MT_object.append(
-        lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
-    )
+    #bpy.types.VIEW3D_MT_object.append(
+    #    lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
+    #)
 
-    # Add list of Camera shakes to object properties.
-    bpy.types.Object.camera_shake = bpy.props.EnumProperty(
-        name = "Camera Shake",
-        items = [('NONE', 'None', "")] \
-            + [(id, id.replace("_", " ").title(), "") for id in WOBBLE_LIST.keys()],
-        default = 'NONE',
-        update = on_set_camera_wobble,
-    )
+    # The list of camera shakes active on an camera, along with each shake's parameters.
+    bpy.types.Object.camera_shakes = bpy.props.CollectionProperty(type=CameraShakeInstance)
+    bpy.types.Object.camera_shakes_active_index = bpy.props.IntProperty(name="Camera Shake List Active Item Index")
 
-    # bpy.types.Scene.clean_blend_use_max_vert_check = bpy.props.BoolProperty(
-    #     name="Use Max Vert Check",
-    #     default=False,
-    #     description="Use a random subset of vertices for mesh-duplicate checks.  This can make blend file cleaning faster, at the slight risk of de-duplicating meshes that aren't actually duplicates",
-    # )
+    # The general list of Camera shakes for the drop-down menu.
+    bpy.types.WindowManager.camera_shake_selection = bpy.props.EnumProperty(
+        name = "Camera Shake Selection",
+        items = [(id, id.replace("_", " ").title(), "") for id in WOBBLE_LIST.keys()],
+    )
 
 
 def unregister():
     bpy.utils.unregister_class(CameraWobblePanel)
+    bpy.utils.unregister_class(OBJECT_UL_camera_shake_items)
+    bpy.utils.unregister_class(CameraShakeInstance)
+    bpy.utils.unregister_class(AddCameraShake)
+    bpy.utils.unregister_class(RemoveCameraShake)
     #bpy.utils.unregister_class(ActionToPythonData)
 
 
