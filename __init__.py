@@ -335,6 +335,26 @@ def rebuild_camera_shakes(camera, context):
     for shake_item_index in range(0, len(camera.camera_shakes)):
         build_single_shake(camera, shake_item_index, collection, context)
 
+    #----------------
+    # Finally, clean up any data that's no longer needed, up to and
+    # including removing the collection itself if there no shakes left.
+    #----------------
+
+    # If there's nothing left in the collection, delete it.
+    if len(collection.objects) == 0:
+        context.scene.collection.children.unlink(collection)
+        if collection.users == 0:
+            bpy.data.collections.remove(collection)
+
+    # Delete unused actions.
+    to_remove = []
+    for action in bpy.data.actions:
+        if action.name.startswith(BASE_NAME):
+            if action.users == 0:
+                to_remove += [action]
+    for action in to_remove:
+        bpy.data.actions.remove(action)
+
 
 def on_shake_type_update(shake_instance, context):
     rebuild_camera_shakes(shake_instance.id_data, context)
@@ -435,7 +455,7 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
     )
     influence: bpy.props.FloatProperty(
         name="Influence",
-        description="How much the camera shake should affect the camera",
+        description="How much the camera shake affects the camera",
         default=1.0,
         min=0.0, max=INFLUENCE_MAX,
         soft_min=0.0, soft_max=1.0,
@@ -449,13 +469,14 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
     )
     speed: bpy.props.FloatProperty(
         name="Speed",
-        description="Multiplier for how fast the shake animation should play",
+        description="Multiplier for how fast the shake animation plays",
         default=1.0,
         soft_min=0.0, soft_max=4.0,
+        options = set(), # Not animatable.
     )
     offset: bpy.props.FloatProperty(
         name="Frame Offset",
-        description="How many frames to offset the shake's timing by",
+        description="How many frames to offset the shake animation",
         default=0.0,
     )
 
