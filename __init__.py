@@ -118,12 +118,9 @@ class OBJECT_UL_camera_shake_items(bpy.types.UIList):
 #========================================================
 
 # Creates a camera shake setup for the given camera and
-# shake item index.
-#
-# This assumes that the collection and frame-Empty already exist.
-def build_shake(camera, shake_item_index):
-    collection = context.scene.collection.children[COLLECTION_NAME]
-    frame_empty = collection.objects[FRAME_EMPTY_NAME]
+# shake item index, using the given collection to store
+# shake empties.
+def build_single_shake(camera, shake_item_index, collection, context):
     shake = camera.camera_shakes[shake_item_index]
 
     action_name = BASE_NAME + "_" + shake.shake_type.lower()
@@ -135,7 +132,7 @@ def build_shake(camera, shake_item_index):
         action = bpy.data.actions[action_name]
     else:
         action = python_data_to_loop_action(
-            WOBBLE_LIST[wobble_name],
+            WOBBLE_LIST[shake.shake_type],
             action_name,
             INFLUENCE_MAX,
             INFLUENCE_MAX * SCALE_MAX * UNIT_SCALE_MAX
@@ -161,6 +158,18 @@ def build_shake(camera, shake_item_index):
     shake_object.animation_data_clear()
     anim_data = shake_object.animation_data_create()
 
+    # Some weird gymnastics needed because of a Blender bug.
+    # Without first assigning an action to the animation data,
+    # then on a fresh scene we won't be able to assign an action
+    # to the action constraint (below).
+    anim_data.action = action
+    anim_data.action = None
+    shake_object.location = (0,0,0)
+    shake_object.rotation_euler = (0,0,0)
+    shake_object.rotation_quaternion = (0,0,0,0)
+    shake_object.rotation_axis_angle = (0,0,0,0)
+    shake_object.scale = (1,1,1)
+
     # Create the action constraint.
     constraint = shake_object.constraints.new('ACTION')
     constraint.use_eval_time = True
@@ -172,15 +181,21 @@ def build_shake(camera, shake_item_index):
     # Create the driver for the constraint's eval time.
     driver = constraint.driver_add("eval_time").driver
     driver.type = 'SCRIPTED'
-    driver.expression = "0.001 + (frame / 1000000)"
+    driver.expression = "0.001 + ((frame + subframe) / 1000000)"
 
     frame_var = driver.variables.new()
     frame_var.name = "frame"
-    frame_var.type = 'TRANSFORMS'
-    frame_var.targets[0].id_type = 'OBJECT'
-    frame_var.targets[0].id = frame_empty
-    frame_var.targets[0].transform_type = 'LOC_X'
-    frame_var.targets[0].transform_space = 'LOCAL_SPACE'
+    frame_var.type = 'SINGLE_PROP'
+    frame_var.targets[0].id_type = 'SCENE'
+    frame_var.targets[0].id = context.scene
+    frame_var.targets[0].data_path = "frame_current"
+
+    subframe_var = driver.variables.new()
+    subframe_var.name = "subframe"
+    subframe_var.type = 'SINGLE_PROP'
+    subframe_var.targets[0].id_type = 'SCENE'
+    subframe_var.targets[0].id = context.scene
+    subframe_var.targets[0].data_path = "frame_subframe"
 
     # TODO: add frame offset and speed driver variables.
 
@@ -192,10 +207,12 @@ def build_shake(camera, shake_item_index):
     rot_constraint_name = BASE_NAME + "_rot_" + str(shake_item_index)
 
     # Create the new constraints.
-    loc_constraint = camera_object.constraints.new(type='COPY_LOCATION')
-    rot_constraint = camera_object.constraints.new(type='COPY_ROTATION')
+    loc_constraint = camera.constraints.new(type='COPY_LOCATION')
+    rot_constraint = camera.constraints.new(type='COPY_ROTATION')
     loc_constraint.name = loc_constraint_name
     rot_constraint.name = rot_constraint_name
+    loc_constraint.show_expanded = False
+    rot_constraint.show_expanded = False
 
     # Set up location constraint.
     loc_constraint.target = shake_object
@@ -218,14 +235,14 @@ def build_shake(camera, shake_item_index):
         var.name = "influence"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'OBJECT'
-        var.targets[0].id = camera_object
+        var.targets[0].id = camera
         var.targets[0].data_path = 'camera_shakes[{}].influence'.format(shake_item_index)
     if "location_scale" not in driver.variables:
         var = driver.variables.new()
         var.name = "location_scale"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'OBJECT'
-        var.targets[0].id = camera_object
+        var.targets[0].id = camera
         var.targets[0].data_path = 'camera_shakes[{}].scale'.format(shake_item_index)
     if "unit_scale" not in driver.variables:
         var = driver.variables.new()
@@ -244,73 +261,15 @@ def build_shake(camera, shake_item_index):
         var.name = "influence"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'OBJECT'
-        var.targets[0].id = camera_object
+        var.targets[0].id = camera
         var.targets[0].data_path = 'camera_shakes[{}].influence'.format(shake_item_index)
-
-
-# General cleanup routine.
-def cleanup(context):
-    # Get the collection if it exists.  Otherwise, nothing to do.
-    collection = None
-    if BASE_NAME in context.scene.collection.children:
-        collection = context.scene.collection.children[BASE_NAME]
-    else:
-        return
-
-    # Check all the cameras in the scene to find out what
-    # shakes are currently being used.
-    shakes_used = {}
-    for obj in context.scene.objects:
-        if obj.type == 'CAMERA':
-            shakes_used[obj.camera_shake] = True
-
-    # Delete unused objects and actions associated with
-    # the unused shakes.
-    for obj in collection.objects:
-        shake_name = obj.name[len(BASE_NAME) + 1:].upper()
-        if shake_name not in shakes_used:
-            action_name = obj.animation_data.action.name
-            obj.animation_data_clear()
-            collection.objects.unlink(obj)
-            if obj.users == 0:
-                bpy.data.objects.remove(obj)
-            if action_name in bpy.data.actions:
-                action = bpy.data.actions[action_name]
-                if action.users == 0:
-                    bpy.data.actions.remove(action)
-
-    # If there's nothing left in the collection, delete it too.
-    if len(collection.objects) == 0:
-        context.scene.collection.children.unlink(collection)
-        if collection.users == 0:
-            bpy.data.collections.remove(collection)
 
 
 # The main function that actually does the real work of this addon.
 # It's called whenever anything relevant in the shake list on a
 # camera is changed, and just tears down and completely rebuilds
 # the camera-shake setup for it.
-def rebuild_camera_wobble(camera_object, context):
-    wobble_name = str(camera_object.camera_shake)
-    loc_constraint_name = BASE_NAME + "_location"
-    rot_constraint_name = BASE_NAME + "_rotation"
-
-    # Handle the "None" case.
-    if wobble_name == 'NONE':
-        if camera_object.animation_data != None:
-            drivers_to_remove = []
-            for driver in camera_object.animation_data.drivers:
-                if driver.data_path.startswith("constraints[\"{}".format(BASE_NAME)):
-                    drivers_to_remove += [driver]
-            for driver in drivers_to_remove:
-                camera_object.animation_data.drivers.remove(driver)
-        if loc_constraint_name in camera_object.constraints:
-            camera_object.constraints.remove(camera_object.constraints[loc_constraint_name])
-        if rot_constraint_name in camera_object.constraints:
-            camera_object.constraints.remove(camera_object.constraints[rot_constraint_name])
-        cleanup(context)
-        return
-
+def rebuild_camera_shakes(camera, context):
     # Ensure that our camera wobble collection exists and fetch it.
     collection = None
     if BASE_NAME in context.scene.collection.children:
@@ -328,126 +287,36 @@ def rebuild_camera_wobble(camera_object, context):
             if collection.name in layer.layer_collection.children:
                 layer.layer_collection.children[collection.name].exclude = True
 
-    # Ensure the needed action exists, and fetch it.
-    action = None
-    action_name = BASE_NAME + "_" + wobble_name.lower()
-    if action_name in bpy.data.actions:
-        action = bpy.data.actions[action_name]
-    else:
-        action = python_data_to_loop_action(
-            WOBBLE_LIST[wobble_name],
-            action_name,
-            INFLUENCE_MAX,
-            INFLUENCE_MAX * SCALE_MAX * UNIT_SCALE_MAX
-        )
+    #----------------
+    # First, completely tear down the current setup, if any.
+    #----------------
 
-    # Ensure the needed empty object exists, fetch it.
-    shake_object = None
-    shake_object_name = BASE_NAME + "_" + wobble_name.lower()
-    if shake_object_name in bpy.data.objects:
-        shake_object = bpy.data.objects[shake_object_name]
-    else:
-        shake_object = bpy.data.objects.new(shake_object_name, None)
+    # Remove shake constraints from the camera.
+    remove_list = []
+    for constraint in camera.constraints:
+        if constraint.name.startswith(BASE_NAME):
+            constraint.driver_remove("influence")
+            remove_list += [constraint]
+    for constraint in remove_list:
+        camera.constraints.remove(constraint)
 
-    # Make sure the empty object has the right action on it.
-    if shake_object.animation_data == None:
-        shake_object.animation_data_create()
-    shake_object.animation_data.action = action
+    # Remove shake empties for this camera.
+    for obj in collection.objects:
+        if obj.name.startswith(BASE_NAME + "_" + camera.name):
+            obj.constraints[0].driver_remove("eval_time")
+            obj.animation_data_clear()
+            bpy.data.objects.remove(obj)
 
-    # Make sure the empty object is linked into our collection.
-    if shake_object.name not in collection.objects:
-        collection.objects.link(shake_object)
+    #----------------
+    # Then build the new setup.
+    #----------------
 
-    # Ensure the camera has the needed custom properties.
-    if "_RNA_UI" not in camera_object:
-        camera_object["_RNA_UI"] = {}
-    if INFLUENCE_PROP not in camera_object:
-        camera_object[INFLUENCE_PROP] = 1.0
-        camera_object["_RNA_UI"][INFLUENCE_PROP] = {
-            "default": 1.0,
-            "min": 0.0,
-            "max": INFLUENCE_MAX,
-            "soft_min": 0.0,
-            "soft_max": 1.0,
-            "description": "How much the camera shake should affect the camera",
-        }
-    if LOCATION_SCALE_PROP not in camera_object:
-        camera_object[LOCATION_SCALE_PROP] = 1.0
-        camera_object["_RNA_UI"][LOCATION_SCALE_PROP] = {
-            "default": 1.0,
-            "min": 0.0,
-            "max": SCALE_MAX,
-            "soft_min": 0.0,
-            "soft_max": 2.0,
-            "description": "Additional scale factor for the location component of the camera shake",
-        }
+    for shake_item_index in range(0, len(camera.camera_shakes)):
+        build_single_shake(camera, shake_item_index, collection, context)
 
-    # Clear old constraints from camera if needed.
-    # Add/remove constraints to/from the camera.
-    if loc_constraint_name in camera_object.constraints:
-        camera_object.constraints.remove(camera_object.constraints[loc_constraint_name])
-    if rot_constraint_name in camera_object.constraints:
-        camera_object.constraints.remove(camera_object.constraints[rot_constraint_name])
 
-    # Create the new constraints.
-    loc_constraint = camera_object.constraints.new(type='COPY_LOCATION')    
-    rot_constraint = camera_object.constraints.new(type='COPY_ROTATION')    
-    loc_constraint.name = loc_constraint_name
-    rot_constraint.name = rot_constraint_name
-
-    # Set up location constraint.
-    loc_constraint.target = shake_object
-    loc_constraint.target_space = 'WORLD'
-    loc_constraint.owner_space = 'LOCAL'
-    loc_constraint.use_offset = True
-    loc_constraint.influence = 1.0 / INFLUENCE_MAX
-
-    # Set up rotation constraint.
-    rot_constraint.target = shake_object
-    rot_constraint.target_space = 'WORLD'
-    rot_constraint.owner_space = 'LOCAL'
-    rot_constraint.mix_mode = 'AFTER'
-    rot_constraint.influence = 1.0 / INFLUENCE_MAX
-
-    # Set up the location constraint driver.
-    driver = loc_constraint.driver_add("influence").driver
-    driver.type = 'SCRIPTED'
-    driver.expression = "{} * influence * location_scale / unit_scale".format(1.0 / (UNIT_SCALE_MAX * INFLUENCE_MAX * SCALE_MAX))
-    if "influence" not in driver.variables:
-        var = driver.variables.new()
-        var.name = "influence"
-        var.type = 'SINGLE_PROP'
-        var.targets[0].id_type = 'OBJECT'
-        var.targets[0].id = camera_object
-        var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
-    if "location_scale" not in driver.variables:
-        var = driver.variables.new()
-        var.name = "location_scale"
-        var.type = 'SINGLE_PROP'
-        var.targets[0].id_type = 'OBJECT'
-        var.targets[0].id = camera_object
-        var.targets[0].data_path ='["{}"]'.format(LOCATION_SCALE_PROP)
-    if "unit_scale" not in driver.variables:
-        var = driver.variables.new()
-        var.name = "unit_scale"
-        var.type = 'SINGLE_PROP'
-        var.targets[0].id_type = 'SCENE'
-        var.targets[0].id = context.scene
-        var.targets[0].data_path ='unit_settings.scale_length'
-
-    # Set up the rotation constraint driver.
-    driver = rot_constraint.driver_add("influence").driver
-    driver.type = 'SCRIPTED'
-    driver.expression = "influence * {}".format(1.0 / INFLUENCE_MAX)
-    if "influence" not in driver.variables:
-        var = driver.variables.new()
-        var.name = "influence"
-        var.type = 'SINGLE_PROP'
-        var.targets[0].id_type = 'OBJECT'
-        var.targets[0].id = camera_object
-        var.targets[0].data_path ='["{}"]'.format(INFLUENCE_PROP)
-
-    cleanup(context)
+def on_shake_type_update(shake_instance, context):
+    rebuild_camera_shakes(shake_instance.id_data, context)
 
 
 #class ActionToPythonData(bpy.types.Operator):
@@ -480,6 +349,7 @@ class CameraShakeAdd(bpy.types.Operator):
     def execute(self, context):
         camera = context.active_object
         shake = camera.camera_shakes.add()
+        rebuild_camera_shakes(camera, context)
         return {'FINISHED'}
 
 
@@ -498,6 +368,7 @@ class CameraShakeRemove(bpy.types.Operator):
         camera = context.active_object
         if camera.camera_shakes_active_index < len(camera.camera_shakes):
             camera.camera_shakes.remove(camera.camera_shakes_active_index)
+            rebuild_camera_shakes(camera, context)
         return {'FINISHED'}
 
 
@@ -526,6 +397,7 @@ class CameraShakeMove(bpy.types.Operator):
         elif self.type == 'DOWN' and (index + 1) < len(camera.camera_shakes):
             camera.camera_shakes.move(index, index + 1)
             camera.camera_shakes_active_index += 1
+        rebuild_camera_shakes(camera, context)
         return {'FINISHED'}
 
 
@@ -536,6 +408,7 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
         items = [(id, id.replace("_", " ").title(), "") for id in WOBBLE_LIST.keys()],
         options = set(), # Not animatable.
         override = set(), # Not library overridable.
+        update = on_shake_type_update,
     )
     influence: bpy.props.FloatProperty(
         name="Influence",
