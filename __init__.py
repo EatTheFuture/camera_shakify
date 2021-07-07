@@ -29,7 +29,7 @@ bl_info = {
 
 import bpy
 from bpy.types import Camera, Context
-from .action_utils import action_to_python_data_text, python_data_to_loop_action
+from .action_utils import action_to_python_data_text, python_data_to_loop_action, action_frame_range
 from .wobble_data import WOBBLE_LIST
 
 BASE_NAME = "CameraWobble.v2"
@@ -122,6 +122,7 @@ class OBJECT_UL_camera_shake_items(bpy.types.UIList):
 # shake empties.
 def build_single_shake(camera, shake_item_index, collection, context):
     shake = camera.camera_shakes[shake_item_index]
+    shake_data = WOBBLE_LIST[shake.shake_type]
 
     action_name = BASE_NAME + "_" + shake.shake_type.lower()
     shake_object_name = BASE_NAME + "_" + camera.name + "_" + str(shake_item_index)
@@ -132,7 +133,7 @@ def build_single_shake(camera, shake_item_index, collection, context):
         action = bpy.data.actions[action_name]
     else:
         action = python_data_to_loop_action(
-            WOBBLE_LIST[shake.shake_type],
+            shake_data[2],
             action_name,
             INFLUENCE_MAX,
             INFLUENCE_MAX * SCALE_MAX * UNIT_SCALE_MAX
@@ -170,22 +171,26 @@ def build_single_shake(camera, shake_item_index, collection, context):
     shake_object.rotation_axis_angle = (0,0,0,0)
     shake_object.scale = (1,1,1)
 
+    # Get action info for calculations below.
+    action_fps = shake_data[1]
+    action_range = action_frame_range(action)
+    action_length = action_range[1] - action_range[0]
+
     # Create the action constraint.
     constraint = shake_object.constraints.new('ACTION')
     constraint.use_eval_time = True
     constraint.mix_mode = 'BEFORE'
     constraint.action = action
-    constraint.frame_start = -1000
-    constraint.frame_end = 1000000 - 1000
+    constraint.frame_start = action_range[0]
+    constraint.frame_end = action_range[1]
 
     # Create the driver for the constraint's eval time.
     driver = constraint.driver_add("eval_time").driver
     driver.type = 'SCRIPTED'
-    shake_action_fps = 24.0
-    factor = 1000000 * (context.scene.render.fps / context.scene.render.fps_base) / shake_action_fps
+    fps_factor = 1.0 / ((context.scene.render.fps / context.scene.render.fps_base) / action_fps)
     driver.expression = \
-        "0.001 + ((frame_offset + ((frame + subframe) * speed)) * {})" \
-        .format(1.0 / factor)
+        "((((frame + subframe) * speed) + frame_offset) * {}) % 1.0" \
+        .format(fps_factor / action_length)
 
     frame_var = driver.variables.new()
     frame_var.name = "frame"
@@ -423,7 +428,7 @@ class CameraShakeMove(bpy.types.Operator):
 class CameraShakeInstance(bpy.types.PropertyGroup):
     shake_type: bpy.props.EnumProperty(
         name = "Shake Type",
-        items = [(id, id.replace("_", " ").title(), "") for id in WOBBLE_LIST.keys()],
+        items = [(id, WOBBLE_LIST[id][0], "") for id in WOBBLE_LIST.keys()],
         options = set(), # Not animatable.
         override = set(), # Not library overridable.
         update = on_shake_type_update,
@@ -446,7 +451,6 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
         name="Speed",
         description="Multiplier for how fast the shake animation should play",
         default=1.0,
-        min=0.0,
         soft_min=0.0, soft_max=4.0,
     )
     offset: bpy.props.FloatProperty(
