@@ -91,8 +91,8 @@ class CameraWobblePanel(bpy.types.Panel):
             col.separator()
             col.prop(shake, "scale")
             col.separator()
-            col.prop(shake, "offset")
             col.prop(shake, "speed")
+            col.prop(shake, "offset")
 
 
 class OBJECT_UL_camera_shake_items(bpy.types.UIList):
@@ -175,13 +175,17 @@ def build_single_shake(camera, shake_item_index, collection, context):
     constraint.use_eval_time = True
     constraint.mix_mode = 'BEFORE'
     constraint.action = action
-    constraint.frame_start = 0
-    constraint.frame_end = 1000000
+    constraint.frame_start = -1000
+    constraint.frame_end = 1000000 - 1000
 
     # Create the driver for the constraint's eval time.
     driver = constraint.driver_add("eval_time").driver
     driver.type = 'SCRIPTED'
-    driver.expression = "0.001 + ((frame + subframe) / 1000000)"
+    shake_action_fps = 24.0
+    factor = 1000000 * (context.scene.render.fps / context.scene.render.fps_base) / shake_action_fps
+    driver.expression = \
+        "0.001 + ((frame_offset + ((frame + subframe) * speed)) * {})" \
+        .format(1.0 / factor)
 
     frame_var = driver.variables.new()
     frame_var.name = "frame"
@@ -197,7 +201,19 @@ def build_single_shake(camera, shake_item_index, collection, context):
     subframe_var.targets[0].id = context.scene
     subframe_var.targets[0].data_path = "frame_subframe"
 
-    # TODO: add frame offset and speed driver variables.
+    offset_var = driver.variables.new()
+    offset_var.name = "frame_offset"
+    offset_var.type = 'SINGLE_PROP'
+    offset_var.targets[0].id_type = 'OBJECT'
+    offset_var.targets[0].id = camera
+    offset_var.targets[0].data_path = 'camera_shakes[{}].offset'.format(shake_item_index)
+
+    speed_var = driver.variables.new()
+    speed_var.name = "speed"
+    speed_var.type = 'SINGLE_PROP'
+    speed_var.targets[0].id_type = 'OBJECT'
+    speed_var.targets[0].id = camera
+    speed_var.targets[0].data_path = 'camera_shakes[{}].speed'.format(shake_item_index)
 
     #----------------
     # Set up the constraints and drivers on the camera object.
@@ -369,6 +385,8 @@ class CameraShakeRemove(bpy.types.Operator):
         if camera.camera_shakes_active_index < len(camera.camera_shakes):
             camera.camera_shakes.remove(camera.camera_shakes_active_index)
             rebuild_camera_shakes(camera, context)
+            if camera.camera_shakes_active_index >= len(camera.camera_shakes) and camera.camera_shakes_active_index > 0:
+                camera.camera_shakes_active_index -= 1
         return {'FINISHED'}
 
 
@@ -424,16 +442,17 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
         min=0.0, max=SCALE_MAX,
         soft_min=0.0, soft_max=2.0,
     )
-    offset: bpy.props.FloatProperty(
-        name="Frame Offset",
-        description="How many frames to offset the shake's timing by",
-        default=0.0,
-    )
     speed: bpy.props.FloatProperty(
         name="Speed",
         description="Multiplier for how fast the shake animation should play",
         default=1.0,
-        soft_min=0.25, soft_max=4.0,
+        min=0.0,
+        soft_min=0.0, soft_max=4.0,
+    )
+    offset: bpy.props.FloatProperty(
+        name="Frame Offset",
+        description="How many frames to offset the shake's timing by",
+        default=0.0,
     )
 
 
