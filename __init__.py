@@ -27,6 +27,8 @@ bl_info = {
     "category": "Animation",
 }
 
+import re
+
 import bpy
 from bpy.types import Camera, Context
 from .action_utils import action_to_python_data_text, python_data_to_loop_action, action_frame_range
@@ -322,8 +324,9 @@ def rebuild_camera_shakes(camera, context):
         camera.constraints.remove(constraint)
 
     # Remove shake empties for this camera.
+    name_match = re.compile("{}_[0-9]+".format(re.escape(BASE_NAME + "_" + camera.name)))
     for obj in collection.objects:
-        if obj.name.startswith(BASE_NAME + "_" + camera.name):
+        if name_match.fullmatch(obj.name) != None:
             obj.constraints[0].driver_remove("eval_time")
             obj.animation_data_clear()
             bpy.data.objects.remove(obj)
