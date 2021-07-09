@@ -18,7 +18,7 @@
 
 bl_info = {
     "name": "Camera Wobble",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "author": "Nathan Vegdahl, Ian Hubert",
     "blender": (2, 93, 0),
     "description": "Add captured camera shake/wobble to your cameras",
