@@ -93,8 +93,12 @@ class CameraWobblePanel(bpy.types.Panel):
             col.separator()
             col.prop(shake, "scale")
             col.separator()
-            col.prop(shake, "speed")
-            col.prop(shake, "offset")
+            col.prop(shake, "use_manual_timing")
+            if shake.use_manual_timing:
+                col.prop(shake, "time")
+            else:
+                col.prop(shake, "speed")
+                col.prop(shake, "offset")
 
 
 class OBJECT_UL_camera_shake_items(bpy.types.UIList):
@@ -191,7 +195,7 @@ def build_single_shake(camera, shake_item_index, collection, context):
     driver.type = 'SCRIPTED'
     fps_factor = 1.0 / ((context.scene.render.fps / context.scene.render.fps_base) / action_fps)
     driver.expression = \
-        "((((frame + subframe) * speed) + frame_offset) * {}) % 1.0" \
+        "((time if manual else ((-frame_offset + frame + subframe) * speed)) * {}) % 1.0" \
         .format(fps_factor / action_length)
 
     frame_var = driver.variables.new()
@@ -208,12 +212,19 @@ def build_single_shake(camera, shake_item_index, collection, context):
     subframe_var.targets[0].id = context.scene
     subframe_var.targets[0].data_path = "frame_subframe"
 
-    offset_var = driver.variables.new()
-    offset_var.name = "frame_offset"
-    offset_var.type = 'SINGLE_PROP'
-    offset_var.targets[0].id_type = 'OBJECT'
-    offset_var.targets[0].id = camera
-    offset_var.targets[0].data_path = 'camera_shakes[{}].offset'.format(shake_item_index)
+    manual_timing_var = driver.variables.new()
+    manual_timing_var.name = "manual"
+    manual_timing_var.type = 'SINGLE_PROP'
+    manual_timing_var.targets[0].id_type = 'OBJECT'
+    manual_timing_var.targets[0].id = camera
+    manual_timing_var.targets[0].data_path = 'camera_shakes[{}].use_manual_timing'.format(shake_item_index)
+
+    time_var = driver.variables.new()
+    time_var.name = "time"
+    time_var.type = 'SINGLE_PROP'
+    time_var.targets[0].id_type = 'OBJECT'
+    time_var.targets[0].id = camera
+    time_var.targets[0].data_path = 'camera_shakes[{}].time'.format(shake_item_index)
 
     speed_var = driver.variables.new()
     speed_var.name = "speed"
@@ -221,6 +232,13 @@ def build_single_shake(camera, shake_item_index, collection, context):
     speed_var.targets[0].id_type = 'OBJECT'
     speed_var.targets[0].id = camera
     speed_var.targets[0].data_path = 'camera_shakes[{}].speed'.format(shake_item_index)
+
+    offset_var = driver.variables.new()
+    offset_var.name = "frame_offset"
+    offset_var.type = 'SINGLE_PROP'
+    offset_var.targets[0].id_type = 'OBJECT'
+    offset_var.targets[0].id = camera
+    offset_var.targets[0].data_path = 'camera_shakes[{}].offset'.format(shake_item_index)
 
     #----------------
     # Set up the constraints and drivers on the camera object.
@@ -393,6 +411,7 @@ class CameraShakeAdd(bpy.types.Operator):
     def execute(self, context):
         camera = context.active_object
         shake = camera.camera_shakes.add()
+        camera.camera_shakes_active_index = len(camera.camera_shakes) - 1
         rebuild_camera_shakes(camera, context)
         return {'FINISHED'}
 
@@ -470,6 +489,18 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
         min=0.0, max=SCALE_MAX,
         soft_min=0.0, soft_max=2.0,
     )
+    use_manual_timing: bpy.props.BoolProperty(
+        name="Manual Timing",
+        description="Manually animate the progression of time through the camera shake animation",
+        default=False,
+    )
+    time: bpy.props.FloatProperty(
+        name="Time",
+        description="Current time (in frame number) of the shake animation",
+        default=0.0,
+        precision=1,
+        step=100.0,
+    )
     speed: bpy.props.FloatProperty(
         name="Speed",
         description="Multiplier for how fast the shake animation plays",
@@ -481,6 +512,8 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
         name="Frame Offset",
         description="How many frames to offset the shake animation",
         default=0.0,
+        precision=1,
+        step=100.0,
     )
 
 
