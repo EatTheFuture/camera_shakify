@@ -17,7 +17,7 @@
 #======================= END GPL LICENSE BLOCK ========================
 
 bl_info = {
-    "name": "Camera Wobble",
+    "name": "Camera Shakify",
     "version": (0, 2, 0),
     "author": "Nathan Vegdahl, Ian Hubert",
     "blender": (2, 93, 0),
@@ -32,9 +32,9 @@ import re
 import bpy
 from bpy.types import Camera, Context
 from .action_utils import action_to_python_data_text, python_data_to_loop_action, action_frame_range
-from .wobble_data import WOBBLE_LIST
+from .shake_data import SHAKE_LIST
 
-BASE_NAME = "CameraWobble.v2"
+BASE_NAME = "CameraShakify.v2"
 COLLECTION_NAME = BASE_NAME
 FRAME_EMPTY_NAME = BASE_NAME + "_frame_empty"
 
@@ -49,10 +49,10 @@ UNIT_SCALE_MAX = 1000.0
 #========================================================
 
 
-class CameraWobblePanel(bpy.types.Panel):
-    """Add wobble to your Cameras."""
-    bl_label = "Camera Wobble"
-    bl_idname = "DATA_PT_camera_wobble"
+class CameraShakifyPanel(bpy.types.Panel):
+    """Add shake to your Cameras."""
+    bl_label = "Camera Shakify"
+    bl_idname = "DATA_PT_camera_shakify"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "data"
@@ -144,7 +144,7 @@ class OBJECT_UL_camera_shake_items(bpy.types.UIList):
 # shake empties.
 def build_single_shake(camera, shake_item_index, collection, context):
     shake = camera.camera_shakes[shake_item_index]
-    shake_data = WOBBLE_LIST[shake.shake_type]
+    shake_data = SHAKE_LIST[shake.shake_type]
 
     action_name = BASE_NAME + "_" + shake.shake_type.lower()
     shake_object_name = BASE_NAME + "_" + camera.name + "_" + str(shake_item_index)
@@ -327,7 +327,7 @@ def build_single_shake(camera, shake_item_index, collection, context):
 # camera is changed, and just tears down and completely rebuilds
 # the camera-shake setup for it.
 def rebuild_camera_shakes(camera, context):
-    # Ensure that our camera wobble collection exists and fetch it.
+    # Ensure that our camera shakify collection exists and fetch it.
     collection = None
     if BASE_NAME in context.scene.collection.children:
         collection = context.scene.collection.children[BASE_NAME]
@@ -533,7 +533,7 @@ class CameraShakesFixGlobal(bpy.types.Operator):
 class CameraShakeInstance(bpy.types.PropertyGroup):
     shake_type: bpy.props.EnumProperty(
         name = "Shake Type",
-        items = [(id, WOBBLE_LIST[id][0], "") for id in WOBBLE_LIST.keys()],
+        items = [(id, SHAKE_LIST[id][0], "") for id in SHAKE_LIST.keys()],
         options = set(), # Not animatable.
         override = set(), # Not library overridable.
         update = on_shake_type_update,
@@ -584,7 +584,7 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
 
 
 def register():
-    bpy.utils.register_class(CameraWobblePanel)
+    bpy.utils.register_class(CameraShakifyPanel)
     bpy.utils.register_class(OBJECT_UL_camera_shake_items)
     bpy.utils.register_class(CameraShakeInstance)
     bpy.utils.register_class(CameraShakeAdd)
@@ -604,7 +604,7 @@ def register():
 
 
 def unregister():
-    bpy.utils.unregister_class(CameraWobblePanel)
+    bpy.utils.unregister_class(CameraShakifyPanel)
     bpy.utils.unregister_class(OBJECT_UL_camera_shake_items)
     bpy.utils.unregister_class(CameraShakeInstance)
     bpy.utils.unregister_class(CameraShakeAdd)
