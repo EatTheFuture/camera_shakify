@@ -62,6 +62,7 @@ class CameraWobblePanel(bpy.types.Panel):
         return context.active_object.type == 'CAMERA'
 
     def draw(self, context):
+        wm = context.window_manager
         layout = self.layout
 
         camera = context.active_object
@@ -69,7 +70,7 @@ class CameraWobblePanel(bpy.types.Panel):
         row = layout.row()
         row.template_list(
             listtype_name="OBJECT_UL_camera_shake_items",
-            list_id="Floog",
+            list_id="Camera Shakes",
             dataptr=camera,
             propname="camera_shakes",
             active_dataptr=camera,
@@ -99,6 +100,21 @@ class CameraWobblePanel(bpy.types.Panel):
             else:
                 col.prop(shake, "speed")
                 col.prop(shake, "offset")
+
+        col.separator(factor=2.0)
+
+        row = layout.row()
+        row.alignment = 'LEFT'
+        header_text = "Misc Utilties"
+        if wm.camera_shake_show_utils:
+            row.prop(wm, "camera_shake_show_utils", icon="DISCLOSURE_TRI_DOWN", text=header_text, expand=False, emboss=False)
+        else:
+            row.prop(wm, "camera_shake_show_utils", icon="DISCLOSURE_TRI_RIGHT", text=header_text, emboss=False)
+        row.separator_spacer()
+
+        col = layout.column()
+        if wm.camera_shake_show_utils:
+            col.operator("object.camera_shakes_fix_global")
 
 
 class OBJECT_UL_camera_shake_items(bpy.types.UIList):
@@ -377,6 +393,38 @@ def rebuild_camera_shakes(camera, context):
         bpy.data.actions.remove(action)
 
 
+# Fixes camera shake setups across the whole scene.
+# This can be necessary if e.g. a user has duplicated cameras
+# around, etc.
+def fix_camera_shakes_globally(context):
+    # Delete the collection and everything in it.
+    if BASE_NAME in context.scene.collection.children:
+        collection = context.scene.collection.children[BASE_NAME]
+
+        for obj in collection.objects:
+            obj.constraints[0].driver_remove("eval_time")
+            obj.animation_data_clear()
+            bpy.data.objects.remove(obj)
+
+        context.scene.collection.children.unlink(collection)
+        if collection.users == 0:
+            bpy.data.collections.remove(collection)
+
+    # Delete unused actions.
+    to_remove = []
+    for action in bpy.data.actions:
+        if action.name.startswith(BASE_NAME):
+            if action.users == 0:
+                to_remove += [action]
+    for action in to_remove:
+        bpy.data.actions.remove(action)
+
+    # Loop through all cameras and re-build their camera shakes.
+    for obj in context.scene.objects:
+        if obj.type == 'CAMERA':
+            rebuild_camera_shakes(obj, context)
+
+
 def on_shake_type_update(shake_instance, context):
     rebuild_camera_shakes(shake_instance.id_data, context)
 
@@ -466,6 +514,21 @@ class CameraShakeMove(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class CameraShakesFixGlobal(bpy.types.Operator):
+    """Ensures that all camera shakes in the scene are set up properly. This generally shouldn't be necessary, but if things are behaving strangely this should fix it"""
+    bl_idname = "object.camera_shakes_fix_global"
+    bl_label = "Fix All Camera Shakes"
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+
+    def execute(self, context):
+        fix_camera_shakes_globally(context)
+        return {'FINISHED'}
+
+
 # An actual instance of Camera shake added to a camera.
 class CameraShakeInstance(bpy.types.PropertyGroup):
     shake_type: bpy.props.EnumProperty(
@@ -527,6 +590,7 @@ def register():
     bpy.utils.register_class(CameraShakeAdd)
     bpy.utils.register_class(CameraShakeRemove)
     bpy.utils.register_class(CameraShakeMove)
+    bpy.utils.register_class(CameraShakesFixGlobal)
     #bpy.utils.register_class(ActionToPythonData)
     #bpy.types.VIEW3D_MT_object.append(
     #    lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
@@ -536,6 +600,8 @@ def register():
     bpy.types.Object.camera_shakes = bpy.props.CollectionProperty(type=CameraShakeInstance)
     bpy.types.Object.camera_shakes_active_index = bpy.props.IntProperty(name="Camera Shake List Active Item Index")
 
+    bpy.types.WindowManager.camera_shake_show_utils = bpy.props.BoolProperty(name="Show Camera Shake Utils UI", default=False)
+
 
 def unregister():
     bpy.utils.unregister_class(CameraWobblePanel)
@@ -544,6 +610,7 @@ def unregister():
     bpy.utils.unregister_class(CameraShakeAdd)
     bpy.utils.unregister_class(CameraShakeRemove)
     bpy.utils.unregister_class(CameraShakeMove)
+    bpy.utils.unregister_class(CameraShakesFixGlobal)
     #bpy.utils.unregister_class(ActionToPythonData)
 
 
