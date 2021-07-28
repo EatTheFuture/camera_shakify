@@ -200,7 +200,10 @@ def build_single_shake(camera, shake_item_index, collection, context):
 
     # Create the action constraint.
     constraint = shake_object.constraints.new('ACTION')
-    constraint.use_eval_time = True
+    try:
+        constraint.use_eval_time = True
+    except AttributeError as exc:
+        raise Exception("Camera Shakify addon requires a minimum Blender version of 2.91") from exc
     constraint.mix_mode = 'BEFORE'
     constraint.action = action
     constraint.frame_start = action_range[0]
