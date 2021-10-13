@@ -1,6 +1,6 @@
 # Camera Shakify
 
-An addon for Blender that lets you easily add realistic camera shake to your cameras.
+An addon for Blender that lets you easily add [realistic camera shake](https://youtu.be/4lCm_jqoBrI) to your cameras.
 
 This addon requires Blender 2.91 or later.
 
