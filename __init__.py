@@ -215,22 +215,8 @@ def build_single_shake(camera, shake_item_index, collection, context):
     driver.type = 'SCRIPTED'
     fps_factor = 1.0 / ((context.scene.render.fps / context.scene.render.fps_base) / action_fps)
     driver.expression = \
-        "((time if manual else ((-frame_offset + frame + subframe) * speed)) * {}) % 1.0" \
+        "((time if manual else ((-frame_offset + frame) * speed)) * {}) % 1.0" \
         .format(fps_factor / action_length)
-
-    frame_var = driver.variables.new()
-    frame_var.name = "frame"
-    frame_var.type = 'SINGLE_PROP'
-    frame_var.targets[0].id_type = 'SCENE'
-    frame_var.targets[0].id = context.scene
-    frame_var.targets[0].data_path = "frame_current"
-
-    subframe_var = driver.variables.new()
-    subframe_var.name = "subframe"
-    subframe_var.type = 'SINGLE_PROP'
-    subframe_var.targets[0].id_type = 'SCENE'
-    subframe_var.targets[0].id = context.scene
-    subframe_var.targets[0].data_path = "frame_subframe"
 
     manual_timing_var = driver.variables.new()
     manual_timing_var.name = "manual"
