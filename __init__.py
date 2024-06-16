@@ -18,7 +18,7 @@
 
 bl_info = {
     "name": "Camera Shakify",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "author": "Nathan Vegdahl, Ian Hubert",
     "blender": (2, 93, 0),
     "description": "Add captured camera shake/wobble to your cameras",
@@ -60,7 +60,7 @@ class CameraShakifyPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object.type == 'CAMERA'
+        return context.active_object and context.active_object.type == 'CAMERA'
 
     def draw(self, context):
         wm = context.window_manager
@@ -106,7 +106,7 @@ class CameraShakifyPanel(bpy.types.Panel):
 
         row = layout.row()
         row.alignment = 'LEFT'
-        header_text = "Misc Utilties"
+        header_text = "Misc Utilities"
         if wm.camera_shake_show_utils:
             row.prop(wm, "camera_shake_show_utils", icon="DISCLOSURE_TRI_DOWN", text=header_text, expand=False, emboss=False)
         else:
@@ -151,10 +151,8 @@ def build_single_shake(camera, shake_item_index, collection, context):
     shake_object_name = BASE_NAME + "_" + camera.name + "_" + str(shake_item_index)
 
     # Ensure the needed action exists, and fetch it.
-    action = None
-    if action_name in bpy.data.actions:
-        action = bpy.data.actions[action_name]
-    else:
+    action = bpy.data.actions.get(action_name)
+    if not action:
         action = python_data_to_loop_action(
             shake_data[2],
             action_name,
@@ -163,10 +161,8 @@ def build_single_shake(camera, shake_item_index, collection, context):
         )
 
     # Ensure the needed shake object exists, fetch it.
-    shake_object = None
-    if shake_object_name in bpy.data.objects:
-        shake_object = bpy.data.objects[shake_object_name]
-    else:
+    shake_object = bpy.data.objects.get(shake_object_name)
+    if not shake_object:
         shake_object = bpy.data.objects.new(shake_object_name, None)
 
     # Make sure the shake object is linked into our collection.
@@ -204,42 +200,42 @@ def build_single_shake(camera, shake_item_index, collection, context):
     try:
         constraint.use_eval_time = True
     except AttributeError as exc:
-        raise Exception("Camera Shakify addon requires a minimum Blender version of 2.91") from exc
+        raise Exception("Camera Shakify addon requires a minimum Blender version of 2.93") from exc
     constraint.mix_mode = 'BEFORE'
     constraint.action = action
     constraint.frame_start = math.floor(action_range[0])
     constraint.frame_end = math.ceil(action_range[1])
 
     # Create the driver for the constraint's eval time.
-    driver = constraint.driver_add("eval_time").driver
-    driver.type = 'SCRIPTED'
+    time_driver = constraint.driver_add("eval_time").driver
+    time_driver.type = 'SCRIPTED'
     fps_factor = 1.0 / ((context.scene.render.fps / context.scene.render.fps_base) / action_fps)
-    driver.expression = \
+    time_driver.expression = \
         "((time if manual else ((-frame_offset + frame) * speed)) * {}) % 1.0" \
         .format(fps_factor / action_length)
 
-    manual_timing_var = driver.variables.new()
+    manual_timing_var = time_driver.variables.new()
     manual_timing_var.name = "manual"
     manual_timing_var.type = 'SINGLE_PROP'
     manual_timing_var.targets[0].id_type = 'OBJECT'
     manual_timing_var.targets[0].id = camera
     manual_timing_var.targets[0].data_path = 'camera_shakes[{}].use_manual_timing'.format(shake_item_index)
 
-    time_var = driver.variables.new()
+    time_var = time_driver.variables.new()
     time_var.name = "time"
     time_var.type = 'SINGLE_PROP'
     time_var.targets[0].id_type = 'OBJECT'
     time_var.targets[0].id = camera
     time_var.targets[0].data_path = 'camera_shakes[{}].time'.format(shake_item_index)
 
-    speed_var = driver.variables.new()
+    speed_var = time_driver.variables.new()
     speed_var.name = "speed"
     speed_var.type = 'SINGLE_PROP'
     speed_var.targets[0].id_type = 'OBJECT'
     speed_var.targets[0].id = camera
     speed_var.targets[0].data_path = 'camera_shakes[{}].speed'.format(shake_item_index)
 
-    offset_var = driver.variables.new()
+    offset_var = time_driver.variables.new()
     offset_var.name = "frame_offset"
     offset_var.type = 'SINGLE_PROP'
     offset_var.targets[0].id_type = 'OBJECT'
@@ -266,33 +262,35 @@ def build_single_shake(camera, shake_item_index, collection, context):
     loc_constraint.target_space = 'WORLD'
     loc_constraint.owner_space = 'LOCAL'
     loc_constraint.use_offset = True
+    loc_constraint.influence = shake.influence
 
     # Set up rotation constraint.
     rot_constraint.target = shake_object
     rot_constraint.target_space = 'WORLD'
     rot_constraint.owner_space = 'LOCAL'
     rot_constraint.mix_mode = 'AFTER'
+    rot_constraint.influence = shake.influence
 
     # Set up the location constraint driver.
-    driver = loc_constraint.driver_add("influence").driver
-    driver.type = 'SCRIPTED'
-    driver.expression = "{} * influence * location_scale / unit_scale".format(1.0 / (UNIT_SCALE_MAX * INFLUENCE_MAX * SCALE_MAX))
-    if "influence" not in driver.variables:
-        var = driver.variables.new()
+    loc_driver = loc_constraint.driver_add("influence").driver
+    loc_driver.type = 'SCRIPTED'
+    loc_driver.expression = "{} * influence * location_scale / unit_scale".format(1.0 / (UNIT_SCALE_MAX * INFLUENCE_MAX * SCALE_MAX))
+    if "influence" not in loc_driver.variables:
+        var = loc_driver.variables.new()
         var.name = "influence"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'OBJECT'
         var.targets[0].id = camera
         var.targets[0].data_path = 'camera_shakes[{}].influence'.format(shake_item_index)
-    if "location_scale" not in driver.variables:
-        var = driver.variables.new()
+    if "location_scale" not in loc_driver.variables:
+        var = loc_driver.variables.new()
         var.name = "location_scale"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'OBJECT'
         var.targets[0].id = camera
         var.targets[0].data_path = 'camera_shakes[{}].scale'.format(shake_item_index)
-    if "unit_scale" not in driver.variables:
-        var = driver.variables.new()
+    if "unit_scale" not in loc_driver.variables:
+        var = loc_driver.variables.new()
         var.name = "unit_scale"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'SCENE'
@@ -300,11 +298,11 @@ def build_single_shake(camera, shake_item_index, collection, context):
         var.targets[0].data_path ='unit_settings.scale_length'
 
     # Set up the rotation constraint driver.
-    driver = rot_constraint.driver_add("influence").driver
-    driver.type = 'SCRIPTED'
-    driver.expression = "influence * {}".format(1.0 / INFLUENCE_MAX)
-    if "influence" not in driver.variables:
-        var = driver.variables.new()
+    rot_driver = rot_constraint.driver_add("influence").driver
+    rot_driver.type = 'SCRIPTED'
+    rot_driver.expression = "influence * {}".format(1.0 / INFLUENCE_MAX)
+    if "influence" not in rot_driver.variables:
+        var = rot_driver.variables.new()
         var.name = "influence"
         var.type = 'SINGLE_PROP'
         var.targets[0].id_type = 'OBJECT'
@@ -470,8 +468,8 @@ class CameraShakeRemove(bpy.types.Operator):
         if camera.camera_shakes_active_index < len(camera.camera_shakes):
             camera.camera_shakes.remove(camera.camera_shakes_active_index)
             rebuild_camera_shakes(camera, context)
-            if camera.camera_shakes_active_index >= len(camera.camera_shakes) and camera.camera_shakes_active_index > 0:
-                camera.camera_shakes_active_index -= 1
+            if camera.camera_shakes_active_index >= len(camera.camera_shakes):
+                camera.camera_shakes_active_index = len(camera.camera_shakes) - 1
         return {'FINISHED'}
 
 
@@ -481,7 +479,7 @@ class CameraShakeMove(bpy.types.Operator):
     bl_label = "Move Shake Item"
     bl_options = {'UNDO'}
 
-    type: bpy.props.EnumProperty(items = [
+    type: bpy.props.EnumProperty(items=[
         ('UP', "", ""),
         ('DOWN', "", ""),
     ])
@@ -497,7 +495,7 @@ class CameraShakeMove(bpy.types.Operator):
         if self.type == 'UP' and index > 0:
             camera.camera_shakes.move(index, index - 1)
             camera.camera_shakes_active_index -= 1
-        elif self.type == 'DOWN' and (index + 1) < len(camera.camera_shakes):
+        elif self.type == 'DOWN' and index < len(camera.camera_shakes) - 1:
             camera.camera_shakes.move(index, index + 1)
             camera.camera_shakes_active_index += 1
         rebuild_camera_shakes(camera, context)
@@ -573,14 +571,19 @@ class CameraShakeInstance(bpy.types.PropertyGroup):
 #========================================================
 
 
+classes = [
+    CameraShakifyPanel,
+    OBJECT_UL_camera_shake_items,
+    CameraShakeInstance,
+    CameraShakeAdd,
+    CameraShakeRemove,
+    CameraShakeMove,
+    CameraShakesFixGlobal,
+]
+
 def register():
-    bpy.utils.register_class(CameraShakifyPanel)
-    bpy.utils.register_class(OBJECT_UL_camera_shake_items)
-    bpy.utils.register_class(CameraShakeInstance)
-    bpy.utils.register_class(CameraShakeAdd)
-    bpy.utils.register_class(CameraShakeRemove)
-    bpy.utils.register_class(CameraShakeMove)
-    bpy.utils.register_class(CameraShakesFixGlobal)
+    for cls in classes:
+        bpy.utils.register_class(cls)
     #bpy.utils.register_class(ActionToPythonData)
     #bpy.types.VIEW3D_MT_object.append(
     #    lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
@@ -594,13 +597,12 @@ def register():
 
 
 def unregister():
-    bpy.utils.unregister_class(CameraShakifyPanel)
-    bpy.utils.unregister_class(OBJECT_UL_camera_shake_items)
-    bpy.utils.unregister_class(CameraShakeInstance)
-    bpy.utils.unregister_class(CameraShakeAdd)
-    bpy.utils.unregister_class(CameraShakeRemove)
-    bpy.utils.unregister_class(CameraShakeMove)
-    bpy.utils.unregister_class(CameraShakesFixGlobal)
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
+
+    del bpy.types.Object.camera_shakes
+    del bpy.types.Object.camera_shakes_active_index
+    del bpy.types.WindowManager.camera_shake_show_utils
     #bpy.utils.unregister_class(ActionToPythonData)
 
 
