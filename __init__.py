@@ -106,7 +106,7 @@ class CameraShakifyPanel(bpy.types.Panel):
 
         row = layout.row()
         row.alignment = 'LEFT'
-        header_text = "Misc Utilties"
+        header_text = "Misc Utilities"
         if wm.camera_shake_show_utils:
             row.prop(wm, "camera_shake_show_utils", icon="DISCLOSURE_TRI_DOWN", text=header_text, expand=False, emboss=False)
         else:
