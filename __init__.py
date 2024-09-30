@@ -18,9 +18,9 @@
 
 bl_info = {
     "name": "Camera Shakify",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "author": "Nathan Vegdahl, Ian Hubert",
-    "blender": (2, 93, 0),
+    "blender": (4, 0, 0),
     "description": "Add captured camera shake/wobble to your cameras",
     "location": "Camera properties",
     # "doc_url": "",
