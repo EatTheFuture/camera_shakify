@@ -2,7 +2,7 @@
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
+#  as published by the Free Software Foundation; either version 3
 #  of the License, or (at your option) any later version.
 #
 #  This program is distributed in the hope that it will be useful,
@@ -20,7 +20,7 @@ bl_info = {
     "name": "Camera Shakify",
     "version": (0, 3, 0),
     "author": "Nathan Vegdahl, Ian Hubert",
-    "blender": (4, 0, 0),
+    "blender": (4, 2, 0),
     "description": "Add captured camera shake/wobble to your cameras",
     "location": "Camera properties",
     # "doc_url": "",
