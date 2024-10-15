@@ -24,11 +24,9 @@ blender_version_min = "4.2.0"
 license = [
   "SPDX:GPL-3.0-or-later",
 ]
-# Optional: required by some licenses.
-# copyright = [
-#   "2002-2024 Developer Name",
-#   "1998 Company Name",
-# ]
+copyright = [
+  "2021-2024 Ian Hubert & Nathan Vegdahl",
+]
 
 # Optional list of supported platforms. If omitted, the extension will be available in all operating systems.
 # platforms = ["windows-x64", "macos-arm64", "linux-x64"]
