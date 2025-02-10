@@ -20,7 +20,7 @@ bl_info = {
     "name": "Camera Shakify",
     "version": (0, 4, 0),
     "author": "Nathan Vegdahl, Ian Hubert",
-    "blender": (4, 2, 0),
+    "blender": (4, 4, 0),
     "description": "Add captured camera shake/wobble to your cameras",
     "location": "Camera properties",
     # "doc_url": "",
@@ -32,13 +32,20 @@ import math
 
 import bpy
 from bpy.types import Camera, Context
-from .action_utils import action_to_python_data_text, python_data_to_loop_action, action_frame_range
+from .action_utils import action_to_python_data_text, ensure_shake_in_action, action_slot_frame_range, ensure_action
 from .shake_data import SHAKE_LIST
 from .farm_script import ensure_farm_script
 
-BASE_NAME = "CameraShakify.v2"
+BASE_NAME = "CameraShakify.v4"
+ACTION_NAME = BASE_NAME
 COLLECTION_NAME = BASE_NAME
-FRAME_EMPTY_NAME = BASE_NAME + "_frame_empty"
+
+# Note: the addon used to be called "Camera Wobble" before it was publicly
+# released, and had a "v1" and "v2" base name under that name.  We don't include
+# those here because those versions of the addon were only ever used internally
+# by Ian, and there should be no files that exist anymore that use those base
+# names.
+BASE_NAMES_OLD = ["CameraShakify.v2"]
 
 # Maximum values of our per-camera scaling/influence properties.
 INFLUENCE_MAX = 4.0
@@ -149,22 +156,20 @@ def build_single_shake(camera, shake_item_index, collection, context):
     shake = camera.camera_shakes[shake_item_index]
     shake_data = SHAKE_LIST[shake.shake_type]
 
-    action_name = BASE_NAME + "_" + shake.shake_type.lower()
+    shake_name = shake.shake_type.lower()
     shake_object_name = BASE_NAME + "_" + camera.name + "_" + str(shake_item_index)
 
-    # Ensure the needed action exists, and fetch it.
-    action = None
-    if action_name in bpy.data.actions:
-        action = bpy.data.actions[action_name]
-    else:
-        action = python_data_to_loop_action(
-            shake_data[2],
-            action_name,
-            INFLUENCE_MAX,
-            INFLUENCE_MAX * SCALE_MAX * UNIT_SCALE_MAX
-        )
+    # Ensure the needed action and shake slot exist.
+    action = ensure_action(ACTION_NAME)
+    slot = ensure_shake_in_action(
+        shake_name,
+        action,
+        shake_data[2],
+        INFLUENCE_MAX,
+        INFLUENCE_MAX * SCALE_MAX * UNIT_SCALE_MAX
+    )
 
-    # Ensure the needed shake object exists, fetch it.
+    # Ensure the needed shake object exists.
     shake_object = None
     if shake_object_name in bpy.data.objects:
         shake_object = bpy.data.objects[shake_object_name]
@@ -197,28 +202,26 @@ def build_single_shake(camera, shake_item_index, collection, context):
     shake_object.scale = (1,1,1)
 
     # Get action info for calculations below.
-    action_fps = shake_data[1]
-    action_range = action_frame_range(action)
-    action_length = action_range[1] - action_range[0]
+    shake_fps = shake_data[1]
+    shake_range = action_slot_frame_range(action, slot)
+    shake_length = shake_range[1] - shake_range[0]
 
     # Create the action constraint.
     constraint = shake_object.constraints.new('ACTION')
-    try:
-        constraint.use_eval_time = True
-    except AttributeError as exc:
-        raise Exception("Camera Shakify addon requires a minimum Blender version of 2.91") from exc
+    constraint.use_eval_time = True
     constraint.mix_mode = 'BEFORE'
     constraint.action = action
-    constraint.frame_start = math.floor(action_range[0])
-    constraint.frame_end = math.ceil(action_range[1])
+    constraint.action_slot = slot
+    constraint.frame_start = shake_range[0]
+    constraint.frame_end = shake_range[1]
 
     # Create the driver for the constraint's eval time.
     driver = constraint.driver_add("eval_time").driver
     driver.type = 'SCRIPTED'
-    fps_factor = 1.0 / ((context.scene.render.fps / context.scene.render.fps_base) / action_fps)
+    fps_factor = 1.0 / ((context.scene.render.fps / context.scene.render.fps_base) / shake_fps)
     driver.expression = \
         "((time if manual else ((-frame_offset + frame) * speed)) * {}) % 1.0" \
-        .format(fps_factor / action_length)
+        .format(fps_factor / shake_length)
 
     manual_timing_var = driver.variables.new()
     manual_timing_var.name = "manual"
@@ -314,6 +317,18 @@ def build_single_shake(camera, shake_item_index, collection, context):
         var.targets[0].data_path = 'camera_shakes[{}].influence'.format(shake_item_index)
 
 
+# Only for use in rebuilding camera shakes, to ensure that constraints, etc.
+# from previous Camera Shakify versions get removed.
+def starts_with_any_base_name(text):
+    base_names = BASE_NAMES_OLD + [BASE_NAME]
+
+    for base_name in base_names:
+        if text.startswith(base_name):
+            return True
+
+    return False
+
+
 # The main function that actually does the real work of this addon.
 # It's called whenever anything relevant in the shake list on a
 # camera is changed, and just tears down and completely rebuilds
@@ -343,7 +358,7 @@ def rebuild_camera_shakes(camera, context):
     # Remove shake constraints from the camera.
     remove_list = []
     for constraint in camera.constraints:
-        if constraint.name.startswith(BASE_NAME):
+        if starts_with_any_base_name(constraint.name):
             constraint.driver_remove("influence")
             remove_list += [constraint]
     for constraint in remove_list:
@@ -375,15 +390,6 @@ def rebuild_camera_shakes(camera, context):
         if collection.users == 0:
             bpy.data.collections.remove(collection)
 
-    # Delete unused actions.
-    to_remove = []
-    for action in bpy.data.actions:
-        if action.name.startswith(BASE_NAME):
-            if action.users == 0:
-                to_remove += [action]
-    for action in to_remove:
-        bpy.data.actions.remove(action)
-
 
 # Fixes camera shake setups across the whole scene.
 # This can be necessary if e.g. a user has duplicated cameras
@@ -402,14 +408,11 @@ def fix_camera_shakes_globally(context):
         if collection.users == 0:
             bpy.data.collections.remove(collection)
 
-    # Delete unused actions.
-    to_remove = []
-    for action in bpy.data.actions:
-        if action.name.startswith(BASE_NAME):
-            if action.users == 0:
-                to_remove += [action]
-    for action in to_remove:
-        bpy.data.actions.remove(action)
+    # Remove shake channelbags in the shake action, to force them to get
+    # re-built.
+    action = ensure_action(ACTION_NAME)
+    for channelbag in action.layers[0].strips[0].channelbags:
+        action.layers[0].strips[0].channelbags.remove(channelbag)
 
     # Loop through all cameras and re-build their camera shakes.
     for obj in context.scene.objects:

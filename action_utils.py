@@ -16,9 +16,10 @@
 #
 #======================= END GPL LICENSE BLOCK ========================
 
+import math
 
 import bpy
-from bpy.types import Action, Context
+from bpy.types import Action, ActionSlot, Context
 
 
 def action_to_python_data_text(act: Action, text_block_name):
@@ -40,12 +41,58 @@ def action_to_python_data_text(act: Action, text_block_name):
     
     return bpy.data.texts.new(text_block_name).from_string(text)
 
-# rot_factor and loc_factor are scaling factors for rotation and
-# location values, respectively.
-def python_data_to_loop_action(data, action_name, rot_factor=1.0, loc_factor=1.0) -> Action:
-    act = bpy.data.actions.new(action_name)
+# Ensure that an Action with the given name exists, and that it has a layer and
+# a keyframe strip.
+def ensure_action(action_name) -> Action:
+    # Ensure the action exists.
+    if action_name in bpy.data.actions:
+        action = bpy.data.actions[action_name]
+    else:
+        action = bpy.data.actions.new(action_name)
+        action.use_fake_user = False
+
+    # Ensure there's at least one layer.
+    if len(action.layers) > 0:
+        layer = action.layers[0]
+    else:
+        layer = action.layers.new("Layer")
+
+    # Ensure there's a keyframe strip.
+    if len(layer.strips) > 0:
+        assert(layer.strips[0].type == 'KEYFRAME')
+    else:
+        layer.strips.new(type='KEYFRAME')
+
+    return action
+
+
+# Ensures that a shake with the given name exists as a slot in the given action.
+#
+# If it doesn't exist, it will be created from the passed `data`.
+#
+# rot_factor and loc_factor are scaling factors for rotation and location
+# values, respectively.
+#
+# Returns the slot in the action corresponding to the shake.
+def ensure_shake_in_action(shake_name, action: Action, data, rot_factor=1.0, loc_factor=1.0) -> ActionSlot:
+    slot_identifier = "OB" + shake_name
+
+    # Ensure a slot for the shake exists.
+    if slot_identifier in action.slots:
+        slot = action.slots[slot_identifier]
+    else:
+        slot = action.slots.new('OBJECT', shake_name)
+    assert(slot.identifier == slot_identifier)
+
+    # If there's already a channelbag for the slot, we assume it's filled with
+    # the correct shake animation.
+    if action.layers[0].strips[0].channelbag(slot) != None:
+        return slot
+
+    # Create channelbag and fill it in with the shake data.
+    channelbag = action.layers[0].strips[0].channelbags.new(slot)
     for k in data:
-        curve = act.fcurves.new(k[0], index=k[1])
+        curve = channelbag.fcurves.new(k[0], index=k[1])
         curve.keyframe_points.add(len(data[k]))
         for i in range(len(data[k])):
             co = [data[k][i][0], data[k][i][1]]
@@ -60,15 +107,21 @@ def python_data_to_loop_action(data, action_name, rot_factor=1.0, loc_factor=1.0
         curve.keyframe_points[-1].co[1] = curve.keyframe_points[0].co[1] # Ensure looping.
         curve.modifiers.new('CYCLES')
         curve.update()
-    act.use_fake_user = False
-    act.user_clear()
-    return act
+
+    return slot
 
 
-def action_frame_range(act: Action):
+def action_slot_frame_range(action: Action, slot: ActionSlot):
+    channelbag = action.layers[0].strips[0].channelbag(slot)
+
     r = [9999999999, -9999999999]
-    for curve in act.fcurves:
+    for curve in channelbag.fcurves:
         cr = curve.range()
         r[0] = min(r[0], cr[0])
         r[1] = max(r[1], cr[1])
+
+    # Ensure integer values.
+    r[0] = math.floor(r[0])
+    r[1] = math.ceil(r[1])
+
     return r
