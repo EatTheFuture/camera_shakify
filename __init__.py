@@ -333,28 +333,45 @@ def starts_with_any_base_name(text):
 
     return False
 
+# Ensure that our camera shakify collection exists and fetch it.
+def ensure_camera_shakify_collection(context):
+    if COLLECTION_NAME in context.scene.collection.children and context.scene.collection.children[COLLECTION_NAME].library == None:
+        return context.scene.collection.children[COLLECTION_NAME]
+
+    # Get the collection.
+    #
+    # The song-and-dance here is to make sure we get a *local* collection,
+    # not a library-linked collection.
+    collection = None
+    for col in bpy.data.collections:
+        if col.name == COLLECTION_NAME and col.library == None:
+            collection = col
+            break
+    if collection == None:
+        collection = bpy.data.collections.new(COLLECTION_NAME)
+        collection.hide_viewport = True
+        collection.hide_render = True
+        collection.hide_select = True
+
+    # Link the collection and get it appropriately set up.
+    context.scene.collection.children.link(collection)
+    for layer in context.scene.view_layers:
+        if collection.name in layer.layer_collection.children:
+            layer.layer_collection.children[collection.name].exclude = True
+
+    return collection
+
 
 # The main function that actually does the real work of this addon.
 # It's called whenever anything relevant in the shake list on a
 # camera is changed, and just tears down and completely rebuilds
 # the camera-shake setup for it.
 def rebuild_camera_shakes(camera, context):
-    # Ensure that our camera shakify collection exists and fetch it.
-    collection = None
-    if BASE_NAME in context.scene.collection.children:
-        collection = context.scene.collection.children[BASE_NAME]
-    else:
-        if BASE_NAME not in bpy.data.collections:
-            collection = bpy.data.collections.new(BASE_NAME)
-            collection.hide_viewport = True
-            collection.hide_render = True
-            collection.hide_select = True
-        else:
-            collection = bpy.data.collections[BASE_NAME]
-        context.scene.collection.children.link(bpy.data.collections[BASE_NAME])
-        for layer in context.scene.view_layers:
-            if collection.name in layer.layer_collection.children:
-                layer.layer_collection.children[collection.name].exclude = True
+    if camera.library != None:
+        # Skip library-linked cameras.
+        return
+
+    collection = ensure_camera_shakify_collection(context)
 
     #----------------
     # First, completely tear down the current setup, if any.
@@ -401,17 +418,14 @@ def rebuild_camera_shakes(camera, context):
 # around, etc.
 def fix_camera_shakes_globally(context):
     # Delete the collection and everything in it.
-    if BASE_NAME in context.scene.collection.children:
-        collection = context.scene.collection.children[BASE_NAME]
-
-        for obj in collection.objects:
-            obj.constraints[0].driver_remove("eval_time")
-            obj.animation_data_clear()
-            bpy.data.objects.remove(obj)
-
-        context.scene.collection.children.unlink(collection)
-        if collection.users == 0:
-            bpy.data.collections.remove(collection)
+    collection = ensure_camera_shakify_collection(context)
+    for obj in collection.objects:
+        obj.constraints[0].driver_remove("eval_time")
+        obj.animation_data_clear()
+        bpy.data.objects.remove(obj)
+    context.scene.collection.children.unlink(collection)
+    if collection.users == 0:
+        bpy.data.collections.remove(collection)
 
     # Remove shake channelbags in the shake action, to force them to get
     # re-built.

@@ -48,9 +48,15 @@ def action_to_python_data_text(act: Action, text_block_name):
 # a keyframe strip.
 def ensure_action(action_name) -> Action:
     # Ensure the action exists.
-    if action_name in bpy.data.actions:
-        action = bpy.data.actions[action_name]
-    else:
+    #
+    # The song-and-dance here is to make sure we get a *local* action, not a
+    # library-linked action.
+    action = None
+    for act in bpy.data.actions:
+        if act.name == action_name and act.library == None:
+            action = act
+            break
+    if action == None:
         action = bpy.data.actions.new(action_name)
         action.use_fake_user = False
 
