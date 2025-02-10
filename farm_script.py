@@ -68,7 +68,7 @@ if __name__ == "__main__":
     # the property with the stand-in class when the real one from the addon already exists.
     if not hasattr(bpy.types.Object, "camera_shakes"):
         bpy.utils.register_class(CameraShakeInstance)
-        bpy.types.Object.camera_shakes = bpy.props.Collection
+        bpy.types.Object.camera_shakes = bpy.props.CollectionProperty(type=CameraShakeInstance)
 """
 
 
