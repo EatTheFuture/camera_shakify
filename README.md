@@ -2,7 +2,9 @@
 
 An addon for Blender that lets you easily add [realistic camera shake](https://youtu.be/4lCm_jqoBrI) to your cameras.
 
-This addon requires Blender 4.2 or later.
+Versions 0.3.x and 0.4.x of this addon require Blender 4.2 or 4.3.
+
+Versions 0.5.0 or later require Blender 4.4 or later.
 
 # License
 
