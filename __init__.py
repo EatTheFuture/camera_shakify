@@ -36,15 +36,19 @@ from .action_utils import action_to_python_data_text, ensure_shake_in_action, ac
 from .shake_data import SHAKE_LIST
 from .farm_script import ensure_farm_script
 
-BASE_NAME = "CameraShakify.v4"
-ACTION_NAME = BASE_NAME
+# Note: the ".v#" number at the end is *not* the addon version.  This number is
+# incremented when the way shakes are constructed changes to prevent
+# compatibility problems, and generally spans multiple addon versions.
+BASE_NAME = "CameraShakify.v3"
+ACTION_NAME = BASE_NAME + " Shakes"
 COLLECTION_NAME = BASE_NAME
 
 # Note: the addon used to be called "Camera Wobble" before it was publicly
 # released, and had a "v1" and "v2" base name under that name.  We don't include
 # those here because those versions of the addon were only ever used internally
 # by Ian, and there should be no files that exist anymore that use those base
-# names.
+# names.  But that's why there's also no "CameraShakify.v1", because that never
+# existed.
 BASE_NAMES_OLD = ["CameraShakify.v2"]
 
 # Maximum values of our per-camera scaling/influence properties.
