@@ -22,6 +22,9 @@ import bpy
 from bpy.types import Action, ActionSlot, Context
 
 
+# TODO: update this function to work with slotted actions.  This is only used
+# when exporting actions as new shakes, and is never run for end users, so I've
+# left it as-is for now.  We can update it when we actually need to use it.
 def action_to_python_data_text(act: Action, text_block_name):
     channels = {}
     act_range = action_frame_range(act)
