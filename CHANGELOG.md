@@ -3,6 +3,8 @@
 
 ## [Unreleased]
 
+- Update code to work properly with the new slotted/layered Action APIs in Blender 4.4.
+
 
 ## [0.4.0] - 2024-02-21
 
