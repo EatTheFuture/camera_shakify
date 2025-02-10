@@ -34,6 +34,7 @@ import bpy
 from bpy.types import Camera, Context
 from .action_utils import action_to_python_data_text, python_data_to_loop_action, action_frame_range
 from .shake_data import SHAKE_LIST
+from .farm_script import ensure_farm_script
 
 BASE_NAME = "CameraShakify.v2"
 COLLECTION_NAME = BASE_NAME
@@ -116,6 +117,7 @@ class CameraShakifyPanel(bpy.types.Panel):
         col = layout.column()
         if wm.camera_shake_show_utils:
             col.operator("object.camera_shakes_fix_global")
+            col.operator("wm.camera_shakify_prep_file_for_farm")
 
 
 class OBJECT_UL_camera_shake_items(bpy.types.UIList):
@@ -519,7 +521,25 @@ class CameraShakesFixGlobal(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class CameraShakifyPrepFileForFarm(bpy.types.Operator):
+    """Adds an auto-execute script to the blend file that makes Camera Shakes work even when the addon is not present. Particularly useful for sending files to a render farm. This only needs to be run once, not every time you submit the file to a farm"""
+    bl_idname = "wm.camera_shakify_prep_file_for_farm"
+    bl_label = "Prep Blend File For Render Farm"
+    bl_options = {'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def execute(self, context):
+        ensure_farm_script(INFLUENCE_MAX, SCALE_MAX)
+        return {'FINISHED'}
+
+
 # An actual instance of Camera shake added to a camera.
+#
+# IMPORTANT: when making changes here, make sure to also update the
+# corresponding script text in farm_script.py.
 class CameraShakeInstance(bpy.types.PropertyGroup):
     shake_type: bpy.props.EnumProperty(
         name = "Shake Type",
@@ -581,10 +601,13 @@ def register():
     bpy.utils.register_class(CameraShakeRemove)
     bpy.utils.register_class(CameraShakeMove)
     bpy.utils.register_class(CameraShakesFixGlobal)
-    #bpy.utils.register_class(ActionToPythonData)
-    #bpy.types.VIEW3D_MT_object.append(
-    #    lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
-    #)
+    bpy.utils.register_class(CameraShakifyPrepFileForFarm)
+
+    # # Only needed for creating new shakes to add to this addon. Not for end users.
+    # bpy.utils.register_class(ActionToPythonData)
+    # bpy.types.VIEW3D_MT_object.append(
+    #     lambda self, context : self.layout.operator(ActionToPythonData.bl_idname)
+    # )
 
     # The list of camera shakes active on an camera, along with each shake's parameters.
     bpy.types.Object.camera_shakes = bpy.props.CollectionProperty(type=CameraShakeInstance)
@@ -594,6 +617,9 @@ def register():
 
 
 def unregister():
+    del bpy.types.Object.camera_shakes
+    del bpy.types.Object.camera_shakes_active_index
+
     bpy.utils.unregister_class(CameraShakifyPanel)
     bpy.utils.unregister_class(OBJECT_UL_camera_shake_items)
     bpy.utils.unregister_class(CameraShakeInstance)
@@ -601,6 +627,8 @@ def unregister():
     bpy.utils.unregister_class(CameraShakeRemove)
     bpy.utils.unregister_class(CameraShakeMove)
     bpy.utils.unregister_class(CameraShakesFixGlobal)
+    bpy.utils.unregister_class(CameraShakifyPrepFileForFarm)
+
     #bpy.utils.unregister_class(ActionToPythonData)
 
 
