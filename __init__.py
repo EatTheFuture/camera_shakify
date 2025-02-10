@@ -522,7 +522,7 @@ class CameraShakesFixGlobal(bpy.types.Operator):
 
 
 class CameraShakifyPrepFileForFarm(bpy.types.Operator):
-    """Adds an auto-execute script to the blend file that makes Camera Shakes work even when the addon is not present. Particularly useful for sending files to a render farm. This only needs to be run once, not every time you submit the file to a farm"""
+    """Adds an auto-execute script to the blend file that makes Camera Shakes work even when the addon is not present. Particularly useful for sending files to a render farm. This only needs to be run once per file, not every time you submit a file to a farm"""
     bl_idname = "wm.camera_shakify_prep_file_for_farm"
     bl_label = "Prep Blend File For Render Farm"
     bl_options = {'UNDO'}
