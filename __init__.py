@@ -284,9 +284,16 @@ def build_single_shake(camera, shake_item_index, collection, context):
     rot_constraint.mix_mode = 'AFTER'
 
     # Set up the location constraint driver.
-    driver = loc_constraint.driver_add("influence").driver
+    #
+    # Note: we clear the keyframes from the driver's fcurve to dodge some
+    # small-value rounding that Blender does internally when evaluating fcurves.
+    # This way the driver expression evaluation gets used directly, without any
+    # intermediate steps that might interfere.
+    fcurve = loc_constraint.driver_add("influence")
+    fcurve.keyframe_points.clear()
+    driver = fcurve.driver
     driver.type = 'SCRIPTED'
-    driver.expression = "{} * influence * location_scale / unit_scale".format(1.0 / (UNIT_SCALE_MAX * INFLUENCE_MAX * SCALE_MAX))
+    driver.expression = "{} * influence * location_scale / unit_scale * int(\"1\")".format(1.0 / (UNIT_SCALE_MAX * INFLUENCE_MAX * SCALE_MAX))
     if "influence" not in driver.variables:
         var = driver.variables.new()
         var.name = "influence"
@@ -310,7 +317,11 @@ def build_single_shake(camera, shake_item_index, collection, context):
         var.targets[0].data_path ='unit_settings.scale_length'
 
     # Set up the rotation constraint driver.
-    driver = rot_constraint.driver_add("influence").driver
+    #
+    # Note: see further-above note for why we clear the keyframes here.
+    fcurve = rot_constraint.driver_add("influence")
+    fcurve.keyframe_points.clear()
+    driver = fcurve.driver
     driver.type = 'SCRIPTED'
     driver.expression = "influence * {}".format(1.0 / INFLUENCE_MAX)
     if "influence" not in driver.variables:
