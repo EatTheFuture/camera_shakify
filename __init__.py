@@ -633,7 +633,7 @@ def register():
 
     # The list of camera shakes active on an camera, along with each shake's parameters.
     bpy.types.Object.camera_shakes = bpy.props.CollectionProperty(type=CameraShakeInstance)
-    bpy.types.Object.camera_shakes_active_index = bpy.props.IntProperty(name="Camera Shake List Active Item Index")
+    bpy.types.Object.camera_shakes_active_index = bpy.props.IntProperty(name="Camera Shake List Active Item Index", options = set())
 
     bpy.types.WindowManager.camera_shake_show_utils = bpy.props.BoolProperty(name="Show Camera Shake Utils UI", default=False)
 
