@@ -4,6 +4,11 @@
 ## [Unreleased]
 
 
+## [0.5.1] - 2026-02-07
+
+- Fix bug caused by a change in Blender 5.0's Python API for creating drivers.  It caused the location component of the shake to not animate.
+
+
 ## [0.5.0] - 2025-02-10
 
 - Update code to work properly with the new slotted/layered Action APIs in Blender 4.4.  Otherwise functionally identical to v0.4.0.
@@ -31,7 +36,8 @@ To be filled out.
 To be filled out.
 
 
-[Unreleased]: https://github.com/cessen/colorbox/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/cessen/colorbox/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/cessen/colorbox/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/cessen/colorbox/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cessen/colorbox/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cessen/colorbox/compare/v0.2.0...v0.3.0
